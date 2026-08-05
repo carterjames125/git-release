@@ -101,3 +101,67 @@ def _resolve_token(token: str | None, env: Mapping[str, str]) -> tuple[str | Non
     if job_token:
         return job_token, True
     return None, False
+
+
+@dataclass(frozen=True, repr=False)
+class NotifySettings:
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str | None
+    smtp_password: str | None
+    smtp_from: str
+    smtp_to: str
+    smtp_starttls: bool
+
+    _SECRET_FIELDS: ClassVar[frozenset[str]] = frozenset({"smtp_password"})
+
+    def __repr__(self) -> str:
+        parts = [f"{f.name}={self._masked_value(f.name)!r}" for f in fields(self)]
+        return f"NotifySettings({', '.join(parts)})"
+
+    def _masked_value(self, name: str) -> object:
+        return "***MASKED***" if name in self._SECRET_FIELDS else getattr(self, name)
+
+    def secret_values(self) -> tuple[str, ...]:
+        return tuple(getattr(self, name) for name in self._SECRET_FIELDS if getattr(self, name))
+
+
+def load_notify_settings(
+    *,
+    smtp_host: str | None,
+    smtp_port: int | None,
+    smtp_user: str | None,
+    smtp_password: str | None,
+    smtp_from: str | None,
+    smtp_to: str | None,
+    smtp_starttls: bool,
+) -> NotifySettings:
+    """Validated independently from `load_settings`: --notify is opt-in, so these
+    fields are only required when the flag is passed. cli.py calls this (if at all)
+    before constructing GitlabClient, so a missing SMTP field still fails before any
+    network call - same "fail fast, up front" guarantee, just a separate aggregated
+    error from the GitLab-config one.
+    """
+    missing = []
+    if not smtp_host:
+        missing.append("smtp_host (set --smtp-host or SMTP_HOST)")
+    if not smtp_from:
+        missing.append("smtp_from (set --smtp-from or SMTP_FROM)")
+    if not smtp_to:
+        missing.append("smtp_to (set --smtp-to or SMTP_TO)")
+    if missing:
+        raise ConfigError(
+            "Missing required notification configuration:\n"
+            + "\n".join(f"  - {m}" for m in missing)
+        )
+
+    assert smtp_host and smtp_from and smtp_to
+    return NotifySettings(
+        smtp_host=smtp_host,
+        smtp_port=smtp_port or 25,
+        smtp_user=smtp_user,
+        smtp_password=smtp_password,
+        smtp_from=smtp_from,
+        smtp_to=smtp_to,
+        smtp_starttls=smtp_starttls,
+    )
