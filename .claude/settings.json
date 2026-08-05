@@ -1,0 +1,12 @@
+{
+  "enabledPlugins": {
+    "github@claude-plugins-official": true
+  },
+   "mcpServers": {
+    "claude-code-guide": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "claude-code-ultimate-guide-mcp"]
+    }
+  }
+}
