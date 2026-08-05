@@ -57,7 +57,20 @@ class GitlabClient:
         return names[idx - 1] if idx > 0 else None
 
     def compare_commits(self, *, from_: str | None, to: str) -> list[RawCommit]:
-        raise NotImplementedError  # Task 4
+        try:
+            result = self._project.repository_compare(from_=from_ or "", to=to)
+        except GitlabError as exc:
+            raise GitLabAPIError(f"Failed to compare commits: {exc}") from exc
+        return [
+            RawCommit(
+                sha=c["id"],
+                title=c["title"],
+                message=c["message"],
+                author_name=c["author_name"],
+                author_email=c["author_email"],
+            )
+            for c in result["commits"]
+        ]
 
     def mr_approvers(self, commit_shas: Sequence[str]) -> dict[str, list[str]]:
         raise NotImplementedError  # Task 5
