@@ -134,3 +134,33 @@ def register_empty_release(tag: str = "v1.2.3") -> None:
     register_project()
     register_tags([{"name": tag, "committed_date": "2026-01-01T00:00:00.000Z"}])
     register_commits_list([])
+
+
+def register_packages_list(packages: list[dict[str, int]]) -> None:
+    responses.add(
+        responses.GET,
+        f"{API}/projects/{PROJECT_ID}/packages",
+        json=packages,
+        status=200,
+    )
+
+
+def register_package_files_list(package_id: int, files: list[dict[str, str]]) -> None:
+    responses.add(
+        responses.GET,
+        f"{API}/projects/{PROJECT_ID}/packages/{package_id}/package_files",
+        json=files,
+        status=200,
+    )
+
+
+def register_generic_package_upload(
+    package_name: str, package_version: str, file_name: str, *, status: int = 201
+) -> None:
+    responses.add(
+        responses.PUT,
+        f"{API}/projects/{PROJECT_ID}/packages/generic/{package_name}/"
+        f"{package_version}/{file_name}",
+        json={"message": "201 Created"},
+        status=status,
+    )

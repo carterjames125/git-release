@@ -43,6 +43,7 @@ class GitlabClient:
         is_job_token: bool = False,
         ca_bundle: Path | None = None,
     ) -> None:
+        self._base_url = url.rstrip("/")
         ssl_verify: str | bool = str(ca_bundle) if ca_bundle else True
         if is_job_token:
             self._gl = gitlab.Gitlab(url, job_token=token, ssl_verify=ssl_verify)
@@ -127,6 +128,39 @@ class GitlabClient:
             return web_url
 
         return self._with_retries(_create, description=f"create release {tag!r}")
+
+    def package_download_url(self, *, name: str, version: str, file_name: str) -> str:
+        return (
+            f"{self._base_url}/api/v4/projects/{self._project.id}/packages/generic/"
+            f"{name}/{version}/{file_name}"
+        )
+
+    def package_file_exists(self, *, name: str, version: str, file_name: str) -> bool:
+        def _check() -> bool:
+            packages = self._project.packages.list(
+                package_type="generic",
+                package_name=name,
+                package_version=version,
+                get_all=True,
+            )
+            for pkg in packages:
+                file_names = {f.file_name for f in pkg.package_files.list(get_all=True)}
+                if file_name in file_names:
+                    return True
+            return False
+
+        return self._with_retries(
+            _check, description=f"check whether package file {file_name!r} exists"
+        )
+
+    def upload_package_file(self, *, name: str, version: str, file_name: str, path: Path) -> str:
+        def _upload() -> None:
+            self._project.generic_packages.upload(
+                package_name=name, package_version=version, file_name=file_name, path=path
+            )
+
+        self._with_retries(_upload, description=f"upload package file {file_name!r}")
+        return self.package_download_url(name=name, version=version, file_name=file_name)
 
     def previous_tag(self, *, before: str) -> str | None:
         try:

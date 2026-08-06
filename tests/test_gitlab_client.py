@@ -12,8 +12,11 @@ from tests.gitlab_fixtures import (
     register_commit_merge_requests,
     register_commits_list,
     register_compare,
+    register_generic_package_upload,
     register_mr,
     register_mr_approvals,
+    register_package_files_list,
+    register_packages_list,
     register_project,
     register_release_create,
     register_release_get,
@@ -335,3 +338,66 @@ def test_create_release_sends_assets_links_and_returns_web_url() -> None:
     assert body["assets"]["links"] == [
         {"name": "app.rpm", "url": "https://example.com/app.rpm", "link_type": "package"}
     ]
+
+
+@responses.activate
+def test_package_download_url_format() -> None:
+    register_project()
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    url = client.package_download_url(name="myapp", version="1.2.3", file_name="myapp.rpm")
+
+    assert url == (
+        "https://gitlab.example.com/api/v4/projects/42/packages/generic/myapp/1.2.3/myapp.rpm"
+    )
+
+
+@responses.activate
+def test_package_file_exists_true_when_file_name_matches() -> None:
+    register_project()
+    register_packages_list([{"id": 99, "name": "myapp", "version": "1.2.3"}])
+    register_package_files_list(99, [{"file_name": "myapp.rpm"}])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.package_file_exists(name="myapp", version="1.2.3", file_name="myapp.rpm") is True
+
+
+@responses.activate
+def test_package_file_exists_false_when_no_matching_package() -> None:
+    register_project()
+    register_packages_list([])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.package_file_exists(name="myapp", version="1.2.3", file_name="myapp.rpm") is False
+
+
+@responses.activate
+def test_package_file_exists_false_when_file_name_does_not_match() -> None:
+    register_project()
+    register_packages_list([{"id": 99, "name": "myapp", "version": "1.2.3"}])
+    register_package_files_list(99, [{"file_name": "other.rpm"}])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.package_file_exists(name="myapp", version="1.2.3", file_name="myapp.rpm") is False
+
+
+@responses.activate
+def test_upload_package_file_uploads_and_returns_download_url(tmp_path: object) -> None:
+    import pathlib
+
+    register_project()
+    register_generic_package_upload("myapp", "1.2.3", "myapp.rpm")
+    artifact = pathlib.Path(tmp_path) / "myapp.rpm"
+    artifact.write_bytes(b"fake-rpm-contents")
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    url = client.upload_package_file(
+        name="myapp", version="1.2.3", file_name="myapp.rpm", path=artifact
+    )
+
+    assert url == (
+        "https://gitlab.example.com/api/v4/projects/42/packages/generic/myapp/1.2.3/myapp.rpm"
+    )
