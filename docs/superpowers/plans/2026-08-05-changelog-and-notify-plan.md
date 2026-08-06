@@ -101,8 +101,13 @@ from gitlab_release.config import NotifySettings, load_notify_settings
 
 def test_load_notify_settings_success() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=587, smtp_user=None, smtp_password=None,
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_user=None,
+        smtp_password=None,
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     assert settings.smtp_host == "smtp.example.com"
     assert settings.smtp_port == 587
@@ -111,8 +116,13 @@ def test_load_notify_settings_success() -> None:
 
 def test_load_notify_settings_defaults_port_to_25() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=None, smtp_user=None, smtp_password=None,
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=None,
+        smtp_user=None,
+        smtp_password=None,
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     assert settings.smtp_port == 25
 
@@ -120,8 +130,13 @@ def test_load_notify_settings_defaults_port_to_25() -> None:
 def test_load_notify_settings_missing_fields_raises_aggregated_config_error() -> None:
     with pytest.raises(ConfigError) as exc_info:
         load_notify_settings(
-            smtp_host=None, smtp_port=None, smtp_user=None, smtp_password=None,
-            smtp_from=None, smtp_to="team@example.com", smtp_starttls=False,
+            smtp_host=None,
+            smtp_port=None,
+            smtp_user=None,
+            smtp_password=None,
+            smtp_from=None,
+            smtp_to="team@example.com",
+            smtp_starttls=False,
         )
     message = exc_info.value.message
     assert "smtp_host" in message
@@ -131,8 +146,13 @@ def test_load_notify_settings_missing_fields_raises_aggregated_config_error() ->
 
 def test_notify_settings_repr_masks_password() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=587, smtp_user="u", smtp_password="s3cr3t",
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_user="u",
+        smtp_password="s3cr3t",
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     text = repr(settings)
     assert "s3cr3t" not in text
@@ -273,10 +293,7 @@ def register_tags(tags: list[dict[str, str]]) -> None:
     responses.add(
         responses.GET,
         f"{API}/projects/{PROJECT_ID}/repository/tags",
-        json=[
-            {"name": t["name"], "commit": {"committed_date": t["committed_date"]}}
-            for t in tags
-        ],
+        json=[{"name": t["name"], "commit": {"committed_date": t["committed_date"]}} for t in tags],
         status=200,
     )
 
@@ -308,7 +325,9 @@ def register_mr(iid: int) -> None:
     )
 
 
-def register_mr_approvals(iid: int, approved_by: list[str] | None = None, status: int = 200) -> None:
+def register_mr_approvals(
+    iid: int, approved_by: list[str] | None = None, status: int = 200
+) -> None:
     body = (
         {"approved_by": [{"user": {"name": n}} for n in (approved_by or [])]}
         if status == 200
@@ -634,32 +653,30 @@ Expected: FAIL with `NotImplementedError`.
 In `src/gitlab_release/gitlab_client.py`, replace the `mr_approvers` body:
 
 ```python
-    def mr_approvers(self, commit_shas: Sequence[str]) -> dict[str, list[str]]:
-        approvers: dict[str, list[str]] = {}
-        for sha in commit_shas:
-            try:
-                commit = self._project.commits.get(sha)
-                mrs = commit.merge_requests()
-            except GitlabError as exc:
-                raise GitLabAPIError(
-                    f"Failed to look up merge requests for {sha}: {exc}"
-                ) from exc
+def mr_approvers(self, commit_shas: Sequence[str]) -> dict[str, list[str]]:
+    approvers: dict[str, list[str]] = {}
+    for sha in commit_shas:
+        try:
+            commit = self._project.commits.get(sha)
+            mrs = commit.merge_requests()
+        except GitlabError as exc:
+            raise GitLabAPIError(f"Failed to look up merge requests for {sha}: {exc}") from exc
 
-            names: list[str] = []
-            for mr_data in mrs:
-                try:
-                    mr = self._project.mergerequests.get(mr_data["iid"])
-                    approval = mr.approvals.get()
-                    names.extend(a["user"]["name"] for a in approval.approved_by)
-                except GitlabGetError as exc:
-                    if exc.response_code in (403, 404):
-                        continue
-                    raise GitLabAPIError(
-                        f"Failed to fetch approvals for MR {mr_data['iid']}: {exc}"
-                    ) from exc
-            if names:
-                approvers[sha] = names
-        return approvers
+        names: list[str] = []
+        for mr_data in mrs:
+            try:
+                mr = self._project.mergerequests.get(mr_data["iid"])
+                approval = mr.approvals.get()
+                names.extend(a["user"]["name"] for a in approval.approved_by)
+            except GitlabGetError as exc:
+                if exc.response_code in (403, 404):
+                    continue
+                raise GitLabAPIError(
+                    f"Failed to fetch approvals for MR {mr_data['iid']}: {exc}"
+                ) from exc
+        if names:
+            approvers[sha] = names
+    return approvers
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
@@ -1112,10 +1129,22 @@ def _sample_context() -> ChangelogContext:
         released_at="2026-08-05T00:00:00+00:00",
         commits=[
             parse_commit(
-                RawCommit("abcdef1234", "feat: add widget", "feat: add widget", "Alice", "alice@example.com")
+                RawCommit(
+                    "abcdef1234",
+                    "feat: add widget",
+                    "feat: add widget",
+                    "Alice",
+                    "alice@example.com",
+                )
             ),
             parse_commit(
-                RawCommit("2345678901", "unparseable commit", "unparseable commit", "Bob", "bob@example.com")
+                RawCommit(
+                    "2345678901",
+                    "unparseable commit",
+                    "unparseable commit",
+                    "Bob",
+                    "bob@example.com",
+                )
             ),
         ],
         contributors=[
@@ -1530,9 +1559,12 @@ def test_notify_preview_under_dry_run_does_not_send_email() -> None:
             [
                 "release",
                 "--notify",
-                "--smtp-host", "smtp.example.com",
-                "--smtp-from", "releases@example.com",
-                "--smtp-to", "team@example.com",
+                "--smtp-host",
+                "smtp.example.com",
+                "--smtp-from",
+                "releases@example.com",
+                "--smtp-to",
+                "team@example.com",
             ],
             env=VALID_ENV,
         )
@@ -1571,37 +1603,54 @@ Replace the `release` command's option stack and function signature with:
 ```python
 @cli.command()
 @click.option(
-    "--gitlab-url", envvar="GITLAB_URL", default=None,
+    "--gitlab-url",
+    envvar="GITLAB_URL",
+    default=None,
     help="GitLab instance URL. Falls back to CI_SERVER_URL.",
 )
 @click.option(
-    "--project-id", envvar="GITLAB_PROJECT_ID", default=None,
+    "--project-id",
+    envvar="GITLAB_PROJECT_ID",
+    default=None,
     help="Project ID or path. Falls back to CI_PROJECT_ID.",
 )
 @click.option(
-    "--token", envvar="GITLAB_TOKEN", default=None,
+    "--token",
+    envvar="GITLAB_TOKEN",
+    default=None,
     help="API token. Falls back to CI_JOB_TOKEN (cannot create tags).",
 )
 @click.option(
-    "--tag", envvar="RELEASE_TAG", default=None,
+    "--tag",
+    envvar="RELEASE_TAG",
+    default=None,
     help="Release tag. Falls back to CI_COMMIT_TAG.",
 )
 @click.option(
-    "--ca-bundle", envvar="REQUESTS_CA_BUNDLE", default=None,
+    "--ca-bundle",
+    envvar="REQUESTS_CA_BUNDLE",
+    default=None,
     type=click.Path(path_type=Path, dir_okay=False),
     help="CA bundle for self-hosted instances.",
 )
 @click.option(
-    "--dry-run/--no-dry-run", default=True, envvar="RELEASE_DRY_RUN",
+    "--dry-run/--no-dry-run",
+    default=True,
+    envvar="RELEASE_DRY_RUN",
     help="Preview only; --no-dry-run is reserved for a future release.",
 )
 @click.option(
-    "--template", "template_path", envvar="RELEASE_TEMPLATE", default=None,
+    "--template",
+    "template_path",
+    envvar="RELEASE_TEMPLATE",
+    default=None,
     type=click.Path(path_type=Path, exists=True, dir_okay=False),
     help="Override the bundled changelog template.",
 )
 @click.option(
-    "--notify/--no-notify", default=False, envvar="RELEASE_NOTIFY",
+    "--notify/--no-notify",
+    default=False,
+    envvar="RELEASE_NOTIFY",
     help="Preview an SMTP notification (sending is not implemented yet).",
 )
 @click.option("--smtp-host", envvar="SMTP_HOST", default=None)
@@ -1611,7 +1660,9 @@ Replace the `release` command's option stack and function signature with:
 @click.option("--smtp-from", envvar="SMTP_FROM", default=None)
 @click.option("--smtp-to", envvar="SMTP_TO", default=None)
 @click.option(
-    "--smtp-starttls/--no-smtp-starttls", envvar="SMTP_STARTTLS", default=False,
+    "--smtp-starttls/--no-smtp-starttls",
+    envvar="SMTP_STARTTLS",
+    default=False,
 )
 @handle_errors
 def release(
@@ -1637,23 +1688,32 @@ def release(
     run_ctx: RunContext = ctx.obj
 
     settings = config.load_settings(
-        gitlab_url=gitlab_url, project_id=project_id, token=token,
-        tag=tag, ca_bundle=ca_bundle,
+        gitlab_url=gitlab_url,
+        project_id=project_id,
+        token=token,
+        tag=tag,
+        ca_bundle=ca_bundle,
     )
     secrets = list(settings.secret_values())
 
     notify_settings: config.NotifySettings | None = None
     if notify:
         notify_settings = config.load_notify_settings(
-            smtp_host=smtp_host, smtp_port=smtp_port, smtp_user=smtp_user,
-            smtp_password=smtp_password, smtp_from=smtp_from, smtp_to=smtp_to,
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            smtp_from=smtp_from,
+            smtp_to=smtp_to,
             smtp_starttls=smtp_starttls,
         )
         secrets.extend(notify_settings.secret_values())
 
     log_setup.configure_logging(
-        level=run_ctx.level, json_output=run_ctx.json_output,
-        verbose=run_ctx.verbose, secrets=secrets,
+        level=run_ctx.level,
+        json_output=run_ctx.json_output,
+        verbose=run_ctx.verbose,
+        secrets=secrets,
     )
 
     if not dry_run:
@@ -1664,15 +1724,20 @@ def release(
         )
 
     client = gitlab_client.GitlabClient(
-        url=settings.gitlab_url, project_id=settings.project_id, token=settings.token,
-        is_job_token=settings.is_job_token, ca_bundle=settings.ca_bundle,
+        url=settings.gitlab_url,
+        project_id=settings.project_id,
+        token=settings.token,
+        is_job_token=settings.is_job_token,
+        ca_bundle=settings.ca_bundle,
     )
     context = changelog.build_context(client, settings)
     changelog_text = changelog.render(context, template_path=template_path)
 
     _run_release(
-        settings=settings, changelog_text=changelog_text,
-        notify_settings=notify_settings, json_output=run_ctx.json_output,
+        settings=settings,
+        changelog_text=changelog_text,
+        notify_settings=notify_settings,
+        json_output=run_ctx.json_output,
     )
 ```
 
@@ -1717,7 +1782,7 @@ def _run_release(
     click.echo(changelog_text)
     if notify_settings is not None:
         click.echo(
-            f'[dry-run] Would send notification to {notify_settings.smtp_to} '
+            f"[dry-run] Would send notification to {notify_settings.smtp_to} "
             f'with subject "{subject}". No email sent.'
         )
 ```

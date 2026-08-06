@@ -159,8 +159,13 @@ def test_missing_only_tag_names_only_tag() -> None:
 
 def test_load_notify_settings_success() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=587, smtp_user=None, smtp_password=None,
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_user=None,
+        smtp_password=None,
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     assert settings.smtp_host == "smtp.example.com"
     assert settings.smtp_port == 587
@@ -169,8 +174,13 @@ def test_load_notify_settings_success() -> None:
 
 def test_load_notify_settings_defaults_port_to_25() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=None, smtp_user=None, smtp_password=None,
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=None,
+        smtp_user=None,
+        smtp_password=None,
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     assert settings.smtp_port == 25
 
@@ -178,8 +188,13 @@ def test_load_notify_settings_defaults_port_to_25() -> None:
 def test_load_notify_settings_missing_fields_raises_aggregated_config_error() -> None:
     with pytest.raises(ConfigError) as exc_info:
         load_notify_settings(
-            smtp_host=None, smtp_port=None, smtp_user=None, smtp_password=None,
-            smtp_from=None, smtp_to="team@example.com", smtp_starttls=False,
+            smtp_host=None,
+            smtp_port=None,
+            smtp_user=None,
+            smtp_password=None,
+            smtp_from=None,
+            smtp_to="team@example.com",
+            smtp_starttls=False,
         )
     message = exc_info.value.message
     assert "smtp_host" in message
@@ -189,8 +204,13 @@ def test_load_notify_settings_missing_fields_raises_aggregated_config_error() ->
 
 def test_notify_settings_repr_masks_password() -> None:
     settings = load_notify_settings(
-        smtp_host="smtp.example.com", smtp_port=587, smtp_user="u", smtp_password="s3cr3t",
-        smtp_from="releases@example.com", smtp_to="team@example.com", smtp_starttls=False,
+        smtp_host="smtp.example.com",
+        smtp_port=587,
+        smtp_user="u",
+        smtp_password="s3cr3t",
+        smtp_from="releases@example.com",
+        smtp_to="team@example.com",
+        smtp_starttls=False,
     )
     text = repr(settings)
     assert "s3cr3t" not in text
