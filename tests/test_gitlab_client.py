@@ -15,6 +15,8 @@ from tests.gitlab_fixtures import (
     register_mr,
     register_mr_approvals,
     register_project,
+    register_release_create,
+    register_release_get,
     register_tag_create,
     register_tag_get,
     register_tags,
@@ -289,3 +291,47 @@ def test_create_tag_does_not_retry_on_400(monkeypatch: pytest.MonkeyPatch) -> No
         client.create_tag(tag="v1.2.3", ref="abc123")
 
     assert len(responses.calls) == 2  # project GET + exactly one tag POST, no retry
+
+
+@responses.activate
+def test_release_exists_true_when_found() -> None:
+    register_project()
+    register_release_get("v1.2.3", exists=True)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.release_exists("v1.2.3") is True
+
+
+@responses.activate
+def test_release_exists_false_when_not_found() -> None:
+    register_project()
+    register_release_get("v1.2.3", exists=False)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.release_exists("v1.2.3") is False
+
+
+@responses.activate
+def test_create_release_sends_assets_links_and_returns_web_url() -> None:
+    register_project()
+    register_release_create(
+        "v1.2.3", web_url="https://gitlab.example.com/group/project/-/releases/v1.2.3"
+    )
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    url = client.create_release(
+        tag="v1.2.3",
+        name="v1.2.3",
+        description="## Changelog",
+        links=[{"name": "app.rpm", "url": "https://example.com/app.rpm"}],
+    )
+
+    assert url == "https://gitlab.example.com/group/project/-/releases/v1.2.3"
+    sent = responses.calls[-1].request
+    body = json_module.loads(sent.body)
+    assert body["tag_name"] == "v1.2.3"
+    assert body["assets"]["links"] == [
+        {"name": "app.rpm", "url": "https://example.com/app.rpm", "link_type": "package"}
+    ]

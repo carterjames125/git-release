@@ -93,6 +93,41 @@ class GitlabClient:
 
         self._with_retries(_create, description=f"create tag {tag!r}")
 
+    def release_exists(self, tag: str) -> bool:
+        def _get() -> bool:
+            try:
+                self._project.releases.get(tag)
+            except GitlabGetError as exc:
+                if exc.response_code == 404:
+                    return False
+                raise
+            return True
+
+        return self._with_retries(_get, description=f"check whether release {tag!r} exists")
+
+    def create_release(
+        self, *, tag: str, name: str, description: str, links: list[dict[str, str]]
+    ) -> str:
+        def _create() -> str:
+            release = self._project.releases.create(
+                {
+                    "tag_name": tag,
+                    "name": name,
+                    "description": description,
+                    "assets": {
+                        "links": [
+                            {"name": link["name"], "url": link["url"], "link_type": "package"}
+                            for link in links
+                        ]
+                    },
+                }
+            )
+            web_url = release.web_url
+            assert isinstance(web_url, str)
+            return web_url
+
+        return self._with_retries(_create, description=f"create release {tag!r}")
+
     def previous_tag(self, *, before: str) -> str | None:
         try:
             tags = self._project.tags.list(all=True)

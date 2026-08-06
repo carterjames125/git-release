@@ -102,6 +102,30 @@ def register_tag_create(tag: str, *, status: int = 201) -> None:
     )
 
 
+def register_release_get(tag: str, *, exists: bool) -> None:
+    status = 200 if exists else 404
+    body = {"tag_name": tag} if exists else {"message": "404 Release Not Found"}
+    responses.add(
+        responses.GET,
+        f"{API}/projects/{PROJECT_ID}/releases/{tag}",
+        json=body,
+        status=status,
+    )
+
+
+def register_release_create(
+    tag: str,
+    *,
+    web_url: str = "https://gitlab.example.com/group/project/-/releases/v1.2.3",
+) -> None:
+    responses.add(
+        responses.POST,
+        f"{API}/projects/{PROJECT_ID}/releases",
+        json={"tag_name": tag, "web_url": web_url},
+        status=201,
+    )
+
+
 def register_empty_release(tag: str = "v1.2.3") -> None:
     """The common case: one tag (no predecessor), zero commits in range - used by
     cli.py tests that only care about the dry-run flow working, not changelog content.
