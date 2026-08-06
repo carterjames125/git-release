@@ -16,7 +16,7 @@ import rich_click as click
 from dotenv import load_dotenv
 from loguru import logger
 
-from gitlab_release import config
+from gitlab_release import changelog, config, gitlab_client
 from gitlab_release import logging as log_setup
 from gitlab_release.errors import ConfigError, InternalError, ReleaseError
 
@@ -128,6 +128,31 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
     envvar="RELEASE_DRY_RUN",
     help="Preview only; --no-dry-run is reserved for a future release.",
 )
+@click.option(
+    "--template",
+    "template_path",
+    envvar="RELEASE_TEMPLATE",
+    default=None,
+    type=click.Path(path_type=Path, exists=True, dir_okay=False),
+    help="Override the bundled changelog template.",
+)
+@click.option(
+    "--notify/--no-notify",
+    default=False,
+    envvar="RELEASE_NOTIFY",
+    help="Preview an SMTP notification (sending is not implemented yet).",
+)
+@click.option("--smtp-host", envvar="SMTP_HOST", default=None)
+@click.option("--smtp-port", envvar="SMTP_PORT", default=None, type=int)
+@click.option("--smtp-user", envvar="SMTP_USER", default=None)
+@click.option("--smtp-password", envvar="SMTP_PASSWORD", default=None)
+@click.option("--smtp-from", envvar="SMTP_FROM", default=None)
+@click.option("--smtp-to", envvar="SMTP_TO", default=None)
+@click.option(
+    "--smtp-starttls/--no-smtp-starttls",
+    envvar="SMTP_STARTTLS",
+    default=False,
+)
 @handle_errors
 def release(
     gitlab_url: str | None,
@@ -136,6 +161,15 @@ def release(
     tag: str | None,
     ca_bundle: Path | None,
     dry_run: bool,
+    template_path: Path | None,
+    notify: bool,
+    smtp_host: str | None,
+    smtp_port: int | None,
+    smtp_user: str | None,
+    smtp_password: str | None,
+    smtp_from: str | None,
+    smtp_to: str | None,
+    smtp_starttls: bool,
 ) -> None:
     """Show what a release would do, without creating anything."""
     ctx = click.get_current_context()
@@ -149,48 +183,95 @@ def release(
         tag=tag,
         ca_bundle=ca_bundle,
     )
+    secrets = list(settings.secret_values())
+
+    notify_settings: config.NotifySettings | None = None
+    if notify:
+        notify_settings = config.load_notify_settings(
+            smtp_host=smtp_host,
+            smtp_port=smtp_port,
+            smtp_user=smtp_user,
+            smtp_password=smtp_password,
+            smtp_from=smtp_from,
+            smtp_to=smtp_to,
+            smtp_starttls=smtp_starttls,
+        )
+        secrets.extend(notify_settings.secret_values())
+
     # Re-configure the sink now that secrets are known, before any further code runs.
     log_setup.configure_logging(
         level=run_ctx.level,
         json_output=run_ctx.json_output,
         verbose=run_ctx.verbose,
-        secrets=settings.secret_values(),
+        secrets=secrets,
     )
 
     if not dry_run:
         raise ConfigError(
             "--no-dry-run is not supported yet: release creation, artifact upload, "
-            "changelog generation, and notification are not implemented in this build. "
+            "and notification sending are not implemented in this build. "
             "Only --dry-run is available."
         )
 
-    _run_release(settings=settings, json_output=run_ctx.json_output)
+    client = gitlab_client.GitlabClient(
+        url=settings.gitlab_url,
+        project_id=settings.project_id,
+        token=settings.token,
+        is_job_token=settings.is_job_token,
+        ca_bundle=settings.ca_bundle,
+    )
+    context = changelog.build_context(client, settings)
+    changelog_text = changelog.render(context, template_path=template_path)
+
+    _run_release(
+        settings=settings,
+        changelog_text=changelog_text,
+        notify_settings=notify_settings,
+        json_output=run_ctx.json_output,
+    )
 
 
-def _run_release(*, settings: config.Settings, json_output: bool) -> None:
-    """Business logic seam - no click objects below this line, callable directly from
-    tests or from a future orchestration layer. Currently prints a projection of the
-    validated config, not a real GitLab-side preview (no gitlab_client.py exists yet).
-
-    SEAM: once gitlab_client.py exists, construct a client here, query current
-    tag/release state, and build a richer preview from it.
+def _run_release(
+    *,
+    settings: config.Settings,
+    changelog_text: str,
+    notify_settings: config.NotifySettings | None,
+    json_output: bool,
+) -> None:
+    """Business logic seam - no click objects below this line. Currently prints a
+    projection of the validated config plus a real, GitLab-sourced changelog. Does not
+    call notify.send_notification: dry-run is still the only supported mode, so the
+    notification is always previewed, never sent.
     """
     logger.debug("Building dry-run summary for tag={}", settings.tag)
-    summary = {
+    subject = f"Release {settings.tag}"
+    summary: dict[str, Any] = {
         "dry_run": True,
         "gitlab_url": settings.gitlab_url,
         "project_id": settings.project_id,
         "tag": settings.tag,
         "ref": settings.ref,
+        "changelog": changelog_text,
         # settings.token is intentionally never placed into this dict.
     }
+    if notify_settings is not None:
+        summary["notify_preview"] = {"to": notify_settings.smtp_to, "subject": subject}
+
     if json_output:
         click.echo(json.dumps(summary))
-    else:
+        return
+
+    click.echo(
+        f"[dry-run] Would create release for tag {settings.tag!r} at ref "
+        f"{settings.ref!r} on project {settings.project_id!r} "
+        f"({settings.gitlab_url}). No changes made."
+    )
+    click.echo("\n--- Changelog preview ---")
+    click.echo(changelog_text)
+    if notify_settings is not None:
         click.echo(
-            f"[dry-run] Would create release for tag {settings.tag!r} at ref "
-            f"{settings.ref!r} on project {settings.project_id!r} "
-            f"({settings.gitlab_url}). No changes made."
+            f"[dry-run] Would send notification to {notify_settings.smtp_to} "
+            f'with subject "{subject}". No email sent.'
         )
 
 

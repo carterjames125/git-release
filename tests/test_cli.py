@@ -1,9 +1,11 @@
 import json
+from unittest.mock import patch
 
 import responses
 from click.testing import CliRunner
 
 from gitlab_release.cli import cli
+from tests.gitlab_fixtures import register_empty_release
 
 VALID_ENV = {
     "CI_SERVER_URL": "https://gitlab.example.com",
@@ -16,6 +18,8 @@ VALID_ENV = {
 
 @responses.activate
 def test_dry_run_success_prints_summary_without_token() -> None:
+    register_empty_release(tag="v1.2.3")
+
     runner = CliRunner()
     result = runner.invoke(cli, ["release"], env=VALID_ENV)
 
@@ -28,12 +32,15 @@ def test_dry_run_success_prints_summary_without_token() -> None:
 
 @responses.activate
 def test_dry_run_json_output_is_valid_json_without_token() -> None:
+    register_empty_release(tag="v1.2.3")
+
     runner = CliRunner()
     result = runner.invoke(cli, ["--json", "release"], env=VALID_ENV)
 
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["tag"] == "v1.2.3"
+    assert "changelog" in data
     assert "token" not in data
 
 
@@ -65,8 +72,11 @@ def test_verbose_and_quiet_together_rejected() -> None:
     assert result.exit_code == 2
 
 
+@responses.activate
 def test_unexpected_error_exits_1_with_clean_message(monkeypatch) -> None:
-    def boom(*, settings, json_output):
+    register_empty_release(tag="v1.2.3")
+
+    def boom(*, settings, changelog_text, notify_settings, json_output):
         raise RuntimeError("kaboom")
 
     monkeypatch.setattr("gitlab_release.cli._run_release", boom)
@@ -81,8 +91,44 @@ def test_unexpected_error_exits_1_with_clean_message(monkeypatch) -> None:
 
 @responses.activate
 def test_secret_redacted_in_verbose_logs() -> None:
+    register_empty_release(tag="v1.2.3")
+
     runner = CliRunner()
     result = runner.invoke(cli, ["--verbose", "release"], env=VALID_ENV)
 
     assert result.exit_code == 0, result.stderr
     assert "job-token-sentinel" not in result.stderr
+
+
+@responses.activate
+def test_notify_preview_under_dry_run_does_not_send_email() -> None:
+    register_empty_release(tag="v1.2.3")
+
+    with patch("gitlab_release.notify.smtplib.SMTP") as smtp_cls:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "release",
+                "--notify",
+                "--smtp-host",
+                "smtp.example.com",
+                "--smtp-from",
+                "releases@example.com",
+                "--smtp-to",
+                "team@example.com",
+            ],
+            env=VALID_ENV,
+        )
+
+    assert result.exit_code == 0, result.stderr
+    assert "Would send notification to team@example.com" in result.stdout
+    smtp_cls.assert_not_called()
+
+
+def test_notify_missing_smtp_config_exits_2() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["release", "--notify"], env=VALID_ENV)
+
+    assert result.exit_code == 2
+    assert "smtp_host" in result.stderr
