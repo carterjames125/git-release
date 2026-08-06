@@ -70,7 +70,3 @@ uv run pytest -q                        # tests
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy src/
 ```
-
-Project conventions, architecture, and the full list of what's still deferred are documented
-in [CLAUDE.md](CLAUDE.md). Design and implementation history for each slice lives under
-[docs/superpowers/](docs/superpowers/).
