@@ -44,6 +44,7 @@ def test_dry_run_json_output_is_valid_json_without_token() -> None:
     assert "token" not in data
 
 
+@responses.activate
 def test_missing_required_var_exits_2_names_field() -> None:
     env = dict(VALID_ENV)
     del env["CI_COMMIT_TAG"]
@@ -57,6 +58,7 @@ def test_missing_required_var_exits_2_names_field() -> None:
     assert "Traceback" not in result.stderr
 
 
+@responses.activate
 def test_no_dry_run_rejected() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["release", "--no-dry-run"], env=VALID_ENV)
@@ -65,6 +67,7 @@ def test_no_dry_run_rejected() -> None:
     assert "not implemented" in result.stderr.lower()
 
 
+@responses.activate
 def test_verbose_and_quiet_together_rejected() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["--verbose", "--quiet", "release"], env=VALID_ENV)
@@ -126,6 +129,7 @@ def test_notify_preview_under_dry_run_does_not_send_email() -> None:
     smtp_cls.assert_not_called()
 
 
+@responses.activate
 def test_notify_missing_smtp_config_exits_2() -> None:
     runner = CliRunner()
     result = runner.invoke(cli, ["release", "--notify"], env=VALID_ENV)

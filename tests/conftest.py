@@ -1,6 +1,6 @@
 import pytest
 
-_ENV_PREFIXES = ("GITLAB_", "CI_", "RELEASE_")
+_ENV_PREFIXES = ("GITLAB_", "CI_", "RELEASE_", "SMTP_")
 
 
 @pytest.fixture(autouse=True)
