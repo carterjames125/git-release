@@ -28,6 +28,27 @@ def test_discover_raises_when_match_is_a_directory(tmp_path: Path) -> None:
         discover(tmp_path, "*")
 
 
+def test_discover_raises_when_match_is_a_broken_symlink(tmp_path: Path) -> None:
+    # is_dir() follows symlinks and would silently miss this; is_file() correctly
+    # rejects it since the target doesn't exist.
+    broken = tmp_path / "broken.rpm"
+    broken.symlink_to(tmp_path / "does-not-exist.rpm")
+
+    with pytest.raises(ArtifactError):
+        discover(tmp_path, "*.rpm")
+
+
+def test_discover_accepts_symlink_to_a_real_file(tmp_path: Path) -> None:
+    real = tmp_path / "real.rpm"
+    real.write_bytes(b"data")
+    link = tmp_path / "link.rpm"
+    link.symlink_to(real)
+
+    result = discover(tmp_path, "link.rpm")
+
+    assert [p.name for p in result] == ["link.rpm"]
+
+
 def test_normalize_version_strips_leading_v() -> None:
     assert normalize_version("v1.2.3") == "1.2.3"
 

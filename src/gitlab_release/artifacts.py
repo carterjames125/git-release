@@ -16,8 +16,8 @@ def discover(source_path: Path, pattern: str) -> list[Path]:
     if not matches:
         raise ArtifactError(f"No files matched pattern {pattern!r} under {source_path}")
     for match in matches:
-        if match.is_dir():
-            raise ArtifactError(f"{match} matched {pattern!r} but is a directory, not a file")
+        if not match.is_file():
+            raise ArtifactError(f"{match} matched {pattern!r} but is not a regular file")
     return matches
 
 

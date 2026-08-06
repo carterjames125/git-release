@@ -1,6 +1,6 @@
-"""rich-click group + `release` subcommand. Argument parsing and wiring only -
-business logic (currently just building a dry-run summary) is a plain function
-callable without Click, per the project's layering rule.
+"""rich-click group + `release` subcommand. Argument parsing and wiring only - the
+business logic (dry-run preview, and tag/artifact/release creation) lives in plain
+functions callable without Click, per the project's layering rule.
 """
 
 from __future__ import annotations

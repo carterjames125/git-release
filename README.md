@@ -4,11 +4,12 @@ A Python CLI that runs inside a Docker container as a GitLab CI/CD job and autom
 release step of a pipeline: tagging, package upload, changelog generation, and email
 notification. See [CLAUDE.md](CLAUDE.md) for the full target design.
 
-**Current status:** the `release` command runs a full **read-only preview**. It validates
-configuration, talks to the GitLab API to build a real changelog from commits, contributors,
-and merge request approvers, and previews an SMTP notification — all without creating
-anything. Tag creation, release creation, artifact upload, actually sending the notification,
-and Docker packaging are not implemented yet.
+**Current status:** the `release` command validates configuration, talks to the GitLab API to
+build a real changelog from commits, contributors, and merge request approvers, and — with
+`--no-dry-run` — creates the git tag and GitLab Release and uploads build artifacts to the
+project's Generic Package Registry. `--dry-run` (the default) previews all of the above,
+including an SMTP notification, without creating or uploading anything. Actually sending the
+notification email and Docker packaging are not implemented yet.
 
 ## Install
 
@@ -48,11 +49,16 @@ uv run gitlab-release release --notify \
 |---|---|---|---|
 | `--gitlab-url` | `GITLAB_URL` | `CI_SERVER_URL` | |
 | `--project-id` | `GITLAB_PROJECT_ID` | `CI_PROJECT_ID` | |
-| `--token` | `GITLAB_TOKEN` | `CI_JOB_TOKEN` | Job token is read-only in this build |
+| `--token` | `GITLAB_TOKEN` | `CI_JOB_TOKEN` | Job token can release and upload but cannot create tags |
 | `--tag` | `RELEASE_TAG` | `CI_COMMIT_TAG` | |
 | `--ca-bundle` | `REQUESTS_CA_BUNDLE` | — | For self-hosted instances |
-| `--dry-run` / `--no-dry-run` | `RELEASE_DRY_RUN` | — | Default on; `--no-dry-run` is rejected (not implemented yet) |
+| `--dry-run` / `--no-dry-run` | `RELEASE_DRY_RUN` | — | Default on; `--no-dry-run` creates the tag, release, and uploads artifacts |
 | `--template` | `RELEASE_TEMPLATE` | — | Override the bundled changelog template |
+| `--source-path` | `RELEASE_SOURCE_PATH` | — | Directory of build artifacts to upload; omit to skip artifact upload |
+| `--artifact-pattern` | `RELEASE_ARTIFACT_PATTERN` | — | Glob pattern for artifacts, relative to `--source-path`; defaults to `*` |
+| `--package-name` | `RELEASE_PACKAGE_NAME` | — | Generic package name; defaults to the project's path slug |
+| `--release-name` | `RELEASE_NAME` | — | GitLab release name; defaults to the tag |
+| `--if-exists` | `RELEASE_IF_EXISTS` | — | `fail` / `skip` / `update`, default `fail`; behavior when the release or a package file already exists. Tag creation always fails if the tag already exists, regardless of this setting |
 | `--notify` / `--no-notify` | `RELEASE_NOTIFY` | — | Default off; previews, never sends |
 | `--smtp-host` | `SMTP_HOST` | — | |
 | `--smtp-port` | `SMTP_PORT` | — | Defaults to 25 |

@@ -210,7 +210,7 @@ def test_artifact_already_exists_if_exists_fail_raises_artifact_error(tmp_path) 
 
 
 @responses.activate
-def test_artifact_already_exists_if_exists_skip_omits_it_from_package_urls(tmp_path) -> None:
+def test_artifact_already_exists_if_exists_skip_includes_its_url_in_package_urls(tmp_path) -> None:
     register_empty_release(tag="v1.2.3")
     register_tag_get("v1.2.3", exists=False)
     register_tag_create("v1.2.3")
@@ -236,7 +236,14 @@ def test_artifact_already_exists_if_exists_skip_omits_it_from_package_urls(tmp_p
         template_path=None,
     )
 
-    assert result.package_urls == []
+    assert result.package_urls == [
+        {
+            "name": "app.rpm",
+            "url": (
+                "https://gitlab.example.com/api/v4/projects/42/packages/generic/myapp/1.2.3/app.rpm"
+            ),
+        }
+    ]
 
 
 @responses.activate

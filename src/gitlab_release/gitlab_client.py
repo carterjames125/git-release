@@ -13,7 +13,7 @@ import gitlab
 import requests
 from gitlab.exceptions import GitlabError, GitlabGetError
 
-from gitlab_release.errors import GitLabAPIError
+from gitlab_release.errors import ArtifactError, GitLabAPIError
 
 T = TypeVar("T")
 
@@ -124,7 +124,10 @@ class GitlabClient:
                 }
             )
             web_url = release.web_url
-            assert isinstance(web_url, str)
+            if not isinstance(web_url, str):
+                raise GitLabAPIError(
+                    f"Unexpected response type for release web_url: {type(web_url)!r}"
+                )
             return web_url
 
         return self._with_retries(_create, description=f"create release {tag!r}")
@@ -159,7 +162,13 @@ class GitlabClient:
                 package_name=name, package_version=version, file_name=file_name, path=path
             )
 
-        self._with_retries(_upload, description=f"upload package file {file_name!r}")
+        try:
+            self._with_retries(_upload, description=f"upload package file {file_name!r}")
+        except GitLabAPIError as exc:
+            # Upload failure is an artifact-domain problem (exit code 4), not a
+            # GitLab-auth/permissions/5xx problem (exit code 3), even though it's
+            # raised by the same retry helper as the other methods here.
+            raise ArtifactError(exc.message) from exc
         return self.package_download_url(name=name, version=version, file_name=file_name)
 
     def previous_tag(self, *, before: str) -> str | None:

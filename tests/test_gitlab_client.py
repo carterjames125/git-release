@@ -1,10 +1,11 @@
 import json as json_module
+from pathlib import Path
 
 import pytest
 import requests
 import responses
 
-from gitlab_release.errors import GitLabAPIError
+from gitlab_release.errors import ArtifactError, GitLabAPIError
 from gitlab_release.gitlab_client import GitlabClient
 from tests.gitlab_fixtures import (
     API,
@@ -412,12 +413,10 @@ def test_package_file_exists_false_when_file_name_does_not_match() -> None:
 
 
 @responses.activate
-def test_upload_package_file_uploads_and_returns_download_url(tmp_path: object) -> None:
-    import pathlib
-
+def test_upload_package_file_uploads_and_returns_download_url(tmp_path: Path) -> None:
     register_project()
     register_generic_package_upload("myapp", "1.2.3", "myapp.rpm")
-    artifact = pathlib.Path(tmp_path) / "myapp.rpm"
+    artifact = tmp_path / "myapp.rpm"
     artifact.write_bytes(b"fake-rpm-contents")
 
     client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
@@ -428,3 +427,29 @@ def test_upload_package_file_uploads_and_returns_download_url(tmp_path: object) 
     assert url == (
         "https://gitlab.example.com/api/v4/projects/42/packages/generic/myapp/1.2.3/myapp.rpm"
     )
+
+
+@responses.activate
+def test_upload_package_file_retries_exhausted_raises_artifact_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    import gitlab_release.gitlab_client as gc
+
+    monkeypatch.setattr(gc.time, "sleep", lambda _seconds: None)
+    register_project()
+    for _ in range(3):
+        responses.add(
+            responses.PUT,
+            f"{API}/projects/{PROJECT_ID}/packages/generic/myapp/1.2.3/myapp.rpm",
+            json={"message": "error"},
+            status=500,
+        )
+    artifact = tmp_path / "myapp.rpm"
+    artifact.write_bytes(b"fake-rpm-contents")
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    with pytest.raises(ArtifactError):
+        client.upload_package_file(
+            name="myapp", version="1.2.3", file_name="myapp.rpm", path=artifact
+        )

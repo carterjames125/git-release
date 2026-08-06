@@ -46,7 +46,11 @@ def execute(
     # two orderings mean neither the tag-exists check nor the artifact-conflict check can
     # be short-circuited by the other's mutation.
     if client.tag_exists(settings.tag):
-        raise GitLabAPIError(f"Tag {settings.tag!r} already exists.")
+        raise GitLabAPIError(
+            f"Tag {settings.tag!r} already exists. If a prior run created it and failed "
+            "later, delete the tag and re-run (add --if-exists skip if artifacts from "
+            "that prior run were already uploaded). Otherwise choose a different tag."
+        )
 
     package_urls = _handle_artifacts(
         client, artifact_settings, settings.tag, if_exists=if_exists, dry_run=dry_run
@@ -109,11 +113,21 @@ def _handle_artifacts(
                     f"{artifact_settings.package_name} {version} (--if-exists=fail)"
                 )
             logger.info(
-                "Package file {} already exists for {} {}; skipping (--if-exists={})",
+                "Package file {} already exists for {} {}; skipping upload (--if-exists={})",
                 file_name,
                 artifact_settings.package_name,
                 version,
                 if_exists,
+            )
+            package_urls.append(
+                {
+                    "name": file_name,
+                    "url": client.package_download_url(
+                        name=artifact_settings.package_name,
+                        version=version,
+                        file_name=file_name,
+                    ),
+                }
             )
             continue
         if dry_run:
