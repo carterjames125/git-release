@@ -1,0 +1,38 @@
+# {{ tag }}
+
+Released {{ released_at }}
+{% if previous_tag %}
+Changes since {{ previous_tag }}.
+{% endif %}
+
+{% for type, group in commits_by_type.items() %}
+## {{ type }}
+
+{% for commit in group %}
+- {{ commit.subject }} ({{ commit.sha[:8] }})
+{% endfor %}
+
+{% endfor %}
+{% if contributors %}
+## Contributors
+
+{% for contributor in contributors %}
+- {{ contributor.name }}
+{% endfor %}
+
+{% endif %}
+{% if approvers %}
+## Approvers
+
+{% for approver in approvers %}
+- {{ approver }}
+{% endfor %}
+
+{% endif %}
+{% if packages %}
+## Packages
+
+{% for package in packages %}
+- [{{ package.name }}]({{ package.url }})
+{% endfor %}
+{% endif %}

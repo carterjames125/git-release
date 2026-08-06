@@ -5,8 +5,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from jinja2 import FileSystemLoader, StrictUndefined
+from jinja2.sandbox import SandboxedEnvironment
+
+from gitlab_release.errors import TemplateError
 from gitlab_release.gitlab_client import RawCommit
 
 if TYPE_CHECKING:
@@ -110,3 +115,39 @@ def build_context(
         approvers=approvers,
         packages=list(packages or []),
     )
+
+
+_DEFAULT_TEMPLATE_DIR = Path(__file__).parent / "templates"
+_DEFAULT_TEMPLATE_NAME = "changelog.md.j2"
+
+
+def render(context: ChangelogContext, template_path: Path | None = None) -> str:
+    if template_path is not None:
+        loader = FileSystemLoader(str(template_path.parent))
+        template_name = template_path.name
+    else:
+        loader = FileSystemLoader(str(_DEFAULT_TEMPLATE_DIR))
+        template_name = _DEFAULT_TEMPLATE_NAME
+
+    env = SandboxedEnvironment(
+        loader=loader,
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        undefined=StrictUndefined,
+    )
+    commits_by_type = group_commits_by_type(context.commits)
+    try:
+        template = env.get_template(template_name)
+        return template.render(
+            tag=context.tag,
+            previous_tag=context.previous_tag,
+            project=context.project,
+            released_at=context.released_at,
+            commits_by_type=commits_by_type,
+            contributors=context.contributors,
+            approvers=context.approvers,
+            packages=context.packages,
+        )
+    except Exception as exc:
+        raise TemplateError(f"Failed to render changelog template: {exc}") from exc
