@@ -1,4 +1,9 @@
-from gitlab_release.changelog import group_commits_by_type, parse_commit
+from gitlab_release.changelog import (
+    Contributor,
+    dedupe_contributors,
+    group_commits_by_type,
+    parse_commit,
+)
 from gitlab_release.gitlab_client import RawCommit
 
 
@@ -49,3 +54,37 @@ def test_group_commits_by_type_preserves_first_seen_order_other_last() -> None:
     assert list(grouped.keys()) == ["fix", "feat", "other"]
     assert [c.sha for c in grouped["fix"]] == ["a", "d"]
     assert [c.sha for c in grouped["other"]] == ["b"]
+
+
+def test_dedupe_contributors_by_email_first() -> None:
+    commits = [
+        parse_commit(RawCommit("a", "fix: x", "fix: x", "Alice", "alice@example.com")),
+        parse_commit(RawCommit("b", "fix: y", "fix: y", "Alice", "alice@example.com")),
+    ]
+
+    contributors = dedupe_contributors(commits)
+
+    assert contributors == [Contributor(name="Alice", email="alice@example.com")]
+
+
+def test_dedupe_contributors_by_name_when_email_differs() -> None:
+    commits = [
+        parse_commit(RawCommit("a", "fix: x", "fix: x", "Alice", "alice@work.com")),
+        parse_commit(RawCommit("b", "fix: y", "fix: y", "Alice", "alice@personal.com")),
+    ]
+
+    contributors = dedupe_contributors(commits)
+
+    assert len(contributors) == 1
+    assert contributors[0].name == "Alice"
+
+
+def test_dedupe_contributors_keeps_distinct_people() -> None:
+    commits = [
+        parse_commit(RawCommit("a", "fix: x", "fix: x", "Alice", "alice@example.com")),
+        parse_commit(RawCommit("b", "fix: y", "fix: y", "Bob", "bob@example.com")),
+    ]
+
+    contributors = dedupe_contributors(commits)
+
+    assert {c.name for c in contributors} == {"Alice", "Bob"}

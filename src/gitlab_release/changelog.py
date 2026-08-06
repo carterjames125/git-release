@@ -50,3 +50,22 @@ def group_commits_by_type(commits: list[ParsedCommit]) -> dict[str, list[ParsedC
     if "other" in grouped:
         grouped["other"] = grouped.pop("other")
     return grouped
+
+
+@dataclass(frozen=True)
+class Contributor:
+    name: str
+    email: str
+
+
+def dedupe_contributors(commits: list[ParsedCommit]) -> list[Contributor]:
+    seen_emails: set[str] = set()
+    seen_names: set[str] = set()
+    result: list[Contributor] = []
+    for c in commits:
+        if c.author_email in seen_emails or c.author_name in seen_names:
+            continue
+        seen_emails.add(c.author_email)
+        seen_names.add(c.author_name)
+        result.append(Contributor(name=c.author_name, email=c.author_email))
+    return result
