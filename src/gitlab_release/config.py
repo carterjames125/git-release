@@ -165,3 +165,22 @@ def load_notify_settings(
         smtp_to=smtp_to,
         smtp_starttls=smtp_starttls,
     )
+
+
+@dataclass(frozen=True)
+class ArtifactSettings:
+    source_path: Path
+    pattern: str
+    package_name: str
+
+
+def load_artifact_settings(
+    *, source_path: Path, pattern: str, package_name: str
+) -> ArtifactSettings:
+    """`source_path` existing and being a directory is already guaranteed by Click's
+    `--source-path` option (`exists=True, file_okay=False`); `package_name` is already
+    resolved to a concrete string by cli.py (falling back to the project's path slug)
+    before this is called - config.py has no GitLab API access to do that resolution
+    itself. This function exists for symmetry with `load_notify_settings` and as the
+    one place `ArtifactSettings` is constructed."""
+    return ArtifactSettings(source_path=source_path, pattern=pattern, package_name=package_name)

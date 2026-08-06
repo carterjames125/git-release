@@ -1,6 +1,6 @@
 import pytest
 
-from gitlab_release.config import load_notify_settings, load_settings
+from gitlab_release.config import load_artifact_settings, load_notify_settings, load_settings
 from gitlab_release.errors import ConfigError
 
 
@@ -216,3 +216,11 @@ def test_notify_settings_repr_masks_password() -> None:
     assert "s3cr3t" not in text
     assert "***MASKED***" in text
     assert "smtp.example.com" in text
+
+
+def test_load_artifact_settings_builds_dataclass(tmp_path) -> None:
+    settings = load_artifact_settings(source_path=tmp_path, pattern="*.rpm", package_name="myapp")
+
+    assert settings.source_path == tmp_path
+    assert settings.pattern == "*.rpm"
+    assert settings.package_name == "myapp"
