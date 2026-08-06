@@ -1,7 +1,15 @@
 import responses
 
 from gitlab_release.gitlab_client import GitlabClient
-from tests.gitlab_fixtures import PROJECT_ID, register_compare, register_project, register_tags
+from tests.gitlab_fixtures import (
+    PROJECT_ID,
+    register_commit_merge_requests,
+    register_compare,
+    register_mr,
+    register_mr_approvals,
+    register_project,
+    register_tags,
+)
 
 
 @responses.activate
@@ -79,3 +87,40 @@ def test_compare_commits_from_none_covers_full_history() -> None:
     commits = client.compare_commits(from_=None, to="v1.0.0")
 
     assert commits == []
+
+
+@responses.activate
+def test_mr_approvers_returns_names_by_sha() -> None:
+    register_project()
+    register_commit_merge_requests("abc123", [{"iid": 7}])
+    register_mr(7)
+    register_mr_approvals(7, approved_by=["Bob", "Carol"])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    approvers = client.mr_approvers(["abc123"])
+
+    assert approvers == {"abc123": ["Bob", "Carol"]}
+
+
+@responses.activate
+def test_mr_approvers_degrades_to_empty_on_403() -> None:
+    register_project()
+    register_commit_merge_requests("abc123", [{"iid": 7}])
+    register_mr(7)
+    register_mr_approvals(7, status=403)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    approvers = client.mr_approvers(["abc123"])
+
+    assert approvers == {}
+
+
+@responses.activate
+def test_mr_approvers_empty_when_commit_has_no_merge_requests() -> None:
+    register_project()
+    register_commit_merge_requests("abc123", [])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    approvers = client.mr_approvers(["abc123"])
+
+    assert approvers == {}

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import gitlab
-from gitlab.exceptions import GitlabError
+from gitlab.exceptions import GitlabError, GitlabGetError
 
 from gitlab_release.errors import GitLabAPIError
 
@@ -73,4 +73,26 @@ class GitlabClient:
         ]
 
     def mr_approvers(self, commit_shas: Sequence[str]) -> dict[str, list[str]]:
-        raise NotImplementedError  # Task 5
+        approvers: dict[str, list[str]] = {}
+        for sha in commit_shas:
+            try:
+                commit = self._project.commits.get(sha, lazy=True)
+                mrs = commit.merge_requests()
+            except GitlabError as exc:
+                raise GitLabAPIError(f"Failed to look up merge requests for {sha}: {exc}") from exc
+
+            names: list[str] = []
+            for mr_data in mrs:
+                try:
+                    mr = self._project.mergerequests.get(mr_data["iid"])
+                    approval = mr.approvals.get()
+                    names.extend(a["user"]["name"] for a in approval.approved_by)
+                except GitlabGetError as exc:
+                    if exc.response_code in (403, 404):
+                        continue
+                    raise GitLabAPIError(
+                        f"Failed to fetch approvals for MR {mr_data['iid']}: {exc}"
+                    ) from exc
+            if names:
+                approvers[sha] = names
+        return approvers
