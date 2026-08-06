@@ -61,6 +61,13 @@ class GitlabClient:
             result = self._project.repository_compare(from_=from_ or "", to=to)
         except GitlabError as exc:
             raise GitLabAPIError(f"Failed to compare commits: {exc}") from exc
+        if not isinstance(result, dict):
+            # repository_compare()'s stub return type is dict[str, Any] | requests.Response;
+            # the Response branch only occurs for raw/streaming requests, which this call
+            # never makes. Narrow explicitly so mypy --strict can verify the indexing below.
+            raise GitLabAPIError(
+                f"Unexpected response type from repository_compare: {type(result)!r}"
+            )
         return [
             RawCommit(
                 sha=c["id"],

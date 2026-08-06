@@ -1,6 +1,6 @@
 import pytest
 
-from gitlab_release.config import load_settings
+from gitlab_release.config import load_notify_settings, load_settings
 from gitlab_release.errors import ConfigError
 
 
@@ -155,9 +155,6 @@ def test_missing_only_tag_names_only_tag() -> None:
     assert "tag" in message
     for field in ("gitlab_url", "project_id", "token", "ref"):
         assert field not in message
-
-
-from gitlab_release.config import NotifySettings, load_notify_settings
 
 
 def test_load_notify_settings_success() -> None:
