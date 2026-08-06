@@ -197,3 +197,12 @@ def test_mr_approvers_empty_when_commit_has_no_merge_requests() -> None:
     approvers = client.mr_approvers(["abc123"])
 
     assert approvers == {}
+
+
+@responses.activate
+def test_project_path_returns_slug_from_path_with_namespace() -> None:
+    register_project()
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.project_path() == "project"

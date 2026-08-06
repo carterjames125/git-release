@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import TypeVar
 
 import gitlab
 import requests
 from gitlab.exceptions import GitlabError, GitlabGetError
 
 from gitlab_release.errors import GitLabAPIError
+
+T = TypeVar("T")
+
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
+_MAX_ATTEMPTS = 3
+_BASE_DELAY_SECONDS = 0.5
 
 
 @dataclass(frozen=True)
@@ -44,6 +52,28 @@ class GitlabClient:
             self._project = self._gl.projects.get(project_id)
         except (GitlabError, requests.exceptions.RequestException) as exc:
             raise GitLabAPIError(f"Failed to load project {project_id!r}: {exc}") from exc
+
+    def _with_retries(self, func: Callable[[], T], *, description: str) -> T:
+        """Bounded exponential backoff: up to 3 attempts, retrying only on 429 and
+        5xx responses (and bare connection failures, which carry no status code at
+        all). Any other error - including every other 4xx - is raised immediately."""
+        attempt = 0
+        while True:
+            attempt += 1
+            try:
+                return func()
+            except GitlabError as exc:
+                if exc.response_code not in _RETRYABLE_STATUS or attempt >= _MAX_ATTEMPTS:
+                    raise GitLabAPIError(f"Failed to {description}: {exc}") from exc
+            except requests.exceptions.RequestException as exc:
+                if attempt >= _MAX_ATTEMPTS:
+                    raise GitLabAPIError(f"Failed to {description}: {exc}") from exc
+            time.sleep(_BASE_DELAY_SECONDS * (2 ** (attempt - 1)))
+
+    def project_path(self) -> str:
+        """The project's path slug (e.g. "project" from "group/project"), used as the
+        default generic package name. No API call - reads the already-fetched Project."""
+        return self._project.path_with_namespace.rsplit("/", 1)[-1]
 
     def previous_tag(self, *, before: str) -> str | None:
         try:
