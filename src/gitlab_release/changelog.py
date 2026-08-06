@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from gitlab_release.gitlab_client import RawCommit
+
+if TYPE_CHECKING:
+    from gitlab_release.config import Settings
+    from gitlab_release.gitlab_client import GitlabClient
 
 _CONVENTIONAL_RE = re.compile(r"^(?P<type>[a-z]+)(\((?P<scope>[^)]+)\))?: (?P<subject>.+)$")
 
@@ -69,3 +75,38 @@ def dedupe_contributors(commits: list[ParsedCommit]) -> list[Contributor]:
         seen_names.add(c.author_name)
         result.append(Contributor(name=c.author_name, email=c.author_email))
     return result
+
+
+@dataclass(frozen=True)
+class ChangelogContext:
+    tag: str
+    previous_tag: str | None
+    project: str
+    released_at: str
+    commits: list[ParsedCommit]
+    contributors: list[Contributor]
+    approvers: list[str]
+    packages: list[dict[str, str]]
+
+
+def build_context(
+    client: GitlabClient,
+    settings: Settings,
+    packages: list[dict[str, str]] | None = None,
+) -> ChangelogContext:
+    previous_tag = client.previous_tag(before=settings.tag)
+    raw_commits = client.compare_commits(from_=previous_tag, to=settings.tag)
+    commits = [parse_commit(rc) for rc in raw_commits]
+    contributors = dedupe_contributors(commits)
+    approvers_by_sha = client.mr_approvers([c.sha for c in commits])
+    approvers = sorted({name for names in approvers_by_sha.values() for name in names})
+    return ChangelogContext(
+        tag=settings.tag,
+        previous_tag=previous_tag,
+        project=settings.project_id,
+        released_at=datetime.now(UTC).isoformat(),
+        commits=commits,
+        contributors=contributors,
+        approvers=approvers,
+        packages=list(packages or []),
+    )

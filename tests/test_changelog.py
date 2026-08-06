@@ -1,9 +1,12 @@
 from gitlab_release.changelog import (
+    ChangelogContext,
     Contributor,
+    build_context,
     dedupe_contributors,
     group_commits_by_type,
     parse_commit,
 )
+from gitlab_release.config import Settings
 from gitlab_release.gitlab_client import RawCommit
 
 
@@ -88,3 +91,51 @@ def test_dedupe_contributors_keeps_distinct_people() -> None:
     contributors = dedupe_contributors(commits)
 
     assert {c.name for c in contributors} == {"Alice", "Bob"}
+
+
+class _FakeGitlabClient:
+    def __init__(
+        self,
+        previous: str | None,
+        commits: list[RawCommit],
+        approvers: dict[str, list[str]],
+    ) -> None:
+        self._previous = previous
+        self._commits = commits
+        self._approvers = approvers
+
+    def previous_tag(self, *, before: str) -> str | None:
+        return self._previous
+
+    def compare_commits(self, *, from_: str | None, to: str) -> list[RawCommit]:
+        return self._commits
+
+    def mr_approvers(self, commit_shas: list[str]) -> dict[str, list[str]]:
+        return self._approvers
+
+
+def test_build_context_assembles_full_changelog_context() -> None:
+    commits = [
+        RawCommit("a", "feat: thing", "feat: thing", "Alice", "alice@example.com"),
+        RawCommit("b", "fix: bug", "fix: bug", "Bob", "bob@example.com"),
+    ]
+    client = _FakeGitlabClient(previous="v0.9.0", commits=commits, approvers={"a": ["Carol"]})
+    settings = Settings(
+        gitlab_url="https://gitlab.example.com",
+        project_id="42",
+        token="t",
+        is_job_token=False,
+        tag="v1.0.0",
+        ref="abc",
+        ca_bundle=None,
+    )
+
+    context: ChangelogContext = build_context(client, settings)
+
+    assert context.tag == "v1.0.0"
+    assert context.previous_tag == "v0.9.0"
+    assert context.project == "42"
+    assert len(context.commits) == 2
+    assert {c.name for c in context.contributors} == {"Alice", "Bob"}
+    assert context.approvers == ["Carol"]
+    assert context.packages == []
