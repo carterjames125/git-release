@@ -2,6 +2,9 @@
 
 # Claude Code local settings (personal overrides, not shared)
 .claude/settings.local.json
+.claude
+docs/superpowers
+specs/
 
 # Subagent-driven-development scratch workspace (ledgers, briefs, review packages)
 .superpowers/
