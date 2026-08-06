@@ -37,6 +37,17 @@ def register_compare(commits: list[dict[str, str]]) -> None:
     )
 
 
+def register_commits_list(commits: list[dict[str, str]]) -> None:
+    """Mocks GET .../repository/commits, hit by `commits.list(ref_name=..., get_all=True)`
+    for the "no previous tag" case (compare_commits' from_=None branch)."""
+    responses.add(
+        responses.GET,
+        f"{API}/projects/{PROJECT_ID}/repository/commits",
+        json=commits,
+        status=200,
+    )
+
+
 def register_commit_merge_requests(sha: str, mrs: list[dict[str, int]]) -> None:
     responses.add(
         responses.GET,
@@ -73,7 +84,9 @@ def register_mr_approvals(
 
 def register_empty_release(tag: str = "v1.2.3") -> None:
     """The common case: one tag (no predecessor), zero commits in range - used by
-    cli.py tests that only care about the dry-run flow working, not changelog content."""
+    cli.py tests that only care about the dry-run flow working, not changelog content.
+    Single tag => previous_tag is None => compare_commits hits the commits-list endpoint,
+    not the compare endpoint."""
     register_project()
     register_tags([{"name": tag, "committed_date": "2026-01-01T00:00:00.000Z"}])
-    register_compare(commits=[])
+    register_commits_list([])

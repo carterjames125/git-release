@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import gitlab
+import requests
 from gitlab.exceptions import GitlabError, GitlabGetError
 
 from gitlab_release.errors import GitLabAPIError
@@ -40,15 +42,18 @@ class GitlabClient:
             self._gl = gitlab.Gitlab(url, private_token=token, ssl_verify=ssl_verify)
         try:
             self._project = self._gl.projects.get(project_id)
-        except GitlabError as exc:
+        except (GitlabError, requests.exceptions.RequestException) as exc:
             raise GitLabAPIError(f"Failed to load project {project_id!r}: {exc}") from exc
 
     def previous_tag(self, *, before: str) -> str | None:
         try:
             tags = self._project.tags.list(all=True)
-        except GitlabError as exc:
+        except (GitlabError, requests.exceptions.RequestException) as exc:
             raise GitLabAPIError(f"Failed to list tags: {exc}") from exc
-        ordered = sorted(tags, key=lambda t: t.commit["committed_date"])
+        # committed_date includes the committer's UTC offset (not normalized to Z), so a
+        # plain string sort can disagree with real chronological order across offsets.
+        # Parse before comparing.
+        ordered = sorted(tags, key=lambda t: datetime.fromisoformat(t.commit["committed_date"]))
         names = [t.name for t in ordered]
         try:
             idx = names.index(before)
@@ -57,9 +62,26 @@ class GitlabClient:
         return names[idx - 1] if idx > 0 else None
 
     def compare_commits(self, *, from_: str | None, to: str) -> list[RawCommit]:
+        if from_ is None:
+            # No previous tag: there's no range to compare, so list every commit
+            # reachable from `to` instead of sending an empty (unresolvable) `from`.
+            try:
+                commit_list = self._project.commits.list(ref_name=to, get_all=True)
+            except (GitlabError, requests.exceptions.RequestException) as exc:
+                raise GitLabAPIError(f"Failed to list commits: {exc}") from exc
+            return [
+                RawCommit(
+                    sha=c.id,
+                    title=c.title,
+                    message=c.message,
+                    author_name=c.author_name,
+                    author_email=c.author_email,
+                )
+                for c in commit_list
+            ]
         try:
-            result = self._project.repository_compare(from_=from_ or "", to=to)
-        except GitlabError as exc:
+            result = self._project.repository_compare(from_=from_, to=to)
+        except (GitlabError, requests.exceptions.RequestException) as exc:
             raise GitLabAPIError(f"Failed to compare commits: {exc}") from exc
         if not isinstance(result, dict):
             # repository_compare()'s stub return type is dict[str, Any] | requests.Response;
@@ -85,7 +107,7 @@ class GitlabClient:
             try:
                 commit = self._project.commits.get(sha, lazy=True)
                 mrs = commit.merge_requests()
-            except GitlabError as exc:
+            except (GitlabError, requests.exceptions.RequestException) as exc:
                 raise GitLabAPIError(f"Failed to look up merge requests for {sha}: {exc}") from exc
 
             names: list[str] = []
