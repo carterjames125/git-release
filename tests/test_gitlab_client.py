@@ -87,6 +87,33 @@ def test_previous_tag_sorts_chronologically_across_differing_utc_offsets() -> No
 
 
 @responses.activate
+def test_previous_tag_falls_back_to_latest_when_before_not_yet_created() -> None:
+    # `before` ("v2.0.0") isn't in the list - normal for a fresh tag this run is about
+    # to create. The previous tag is whatever is currently newest.
+    register_project()
+    register_tags(
+        [
+            {"name": "v1.0.0", "committed_date": "2026-01-01T00:00:00.000Z"},
+            {"name": "v1.1.0", "committed_date": "2026-02-01T00:00:00.000Z"},
+        ]
+    )
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.previous_tag(before="v2.0.0") == "v1.1.0"
+
+
+@responses.activate
+def test_previous_tag_none_when_before_not_found_and_no_tags_exist() -> None:
+    register_project()
+    register_tags([])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.previous_tag(before="v1.0.0") is None
+
+
+@responses.activate
 def test_compare_commits_returns_raw_commits() -> None:
     register_project()
     register_compare(

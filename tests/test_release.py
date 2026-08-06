@@ -7,14 +7,18 @@ from gitlab_release.gitlab_client import GitlabClient
 from gitlab_release.release import execute
 from tests.gitlab_fixtures import (
     PROJECT_ID,
+    register_commit_merge_requests,
+    register_compare,
     register_empty_release,
     register_generic_package_upload,
     register_package_files_list,
     register_packages_list,
+    register_project,
     register_release_create,
     register_release_get,
     register_tag_create,
     register_tag_get,
+    register_tags,
 )
 
 
@@ -278,6 +282,51 @@ def test_release_already_exists_if_exists_skip_returns_none_url() -> None:
     )
 
     assert result.release_url is None
+
+
+@responses.activate
+def test_dry_run_with_fresh_tag_and_prior_history_shows_correct_previous_tag() -> None:
+    # Realistic state: v1.0.0 and v1.1.0 already exist; v1.2.0 (being released) does
+    # NOT appear in the tags list yet, consistent with tag_exists() correctly returning
+    # False for it. Regression test for the bug where a not-yet-created tag broke
+    # previous_tag resolution and the changelog preview.
+    register_project()
+    register_tags(
+        [
+            {"name": "v1.0.0", "committed_date": "2026-01-01T00:00:00.000Z"},
+            {"name": "v1.1.0", "committed_date": "2026-02-01T00:00:00.000Z"},
+        ]
+    )
+    register_tag_get("v1.2.0", exists=False)
+    register_release_get("v1.2.0", exists=False)
+    register_compare(
+        commits=[
+            {
+                "id": "abc123",
+                "title": "feat: add widget",
+                "message": "feat: add widget",
+                "author_name": "Alice",
+                "author_email": "alice@example.com",
+            }
+        ]
+    )
+    register_commit_merge_requests("abc123", [])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    settings = _settings(tag="v1.2.0")
+
+    result = execute(
+        client,
+        settings,
+        dry_run=True,
+        artifact_settings=None,
+        release_name="v1.2.0",
+        if_exists="fail",
+        template_path=None,
+    )
+
+    assert "v1.1.0" in result.changelog_text  # correct previous tag, not full history
+    assert result.tag_created is False
 
 
 @responses.activate

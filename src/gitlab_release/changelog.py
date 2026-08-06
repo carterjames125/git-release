@@ -100,7 +100,11 @@ def build_context(
     packages: list[dict[str, str]] | None = None,
 ) -> ChangelogContext:
     previous_tag = client.previous_tag(before=settings.tag)
-    raw_commits = client.compare_commits(from_=previous_tag, to=settings.tag)
+    # Compare against settings.ref (always a resolvable commit SHA), not settings.tag:
+    # the tag may not exist on the server yet (this run may be about to create it), in
+    # which case it isn't a resolvable ref. `ref` points at the same commit the tag does
+    # or will, by construction (create_tag posts {"tag_name": tag, "ref": ref}).
+    raw_commits = client.compare_commits(from_=previous_tag, to=settings.ref)
     commits = [parse_commit(rc) for rc in raw_commits]
     contributors = dedupe_contributors(commits)
     approvers_by_sha = client.mr_approvers([c.sha for c in commits])

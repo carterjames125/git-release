@@ -175,7 +175,11 @@ class GitlabClient:
         try:
             idx = names.index(before)
         except ValueError:
-            return None
+            # `before` isn't in the list yet - normal when it's about to be created by
+            # this same run. Its "previous tag" is whatever is currently newest (the new
+            # one becomes the newest once created). An empty list means there truly are
+            # no tags yet - that's the only case where None (first-ever release) is right.
+            return names[-1] if names else None
         return names[idx - 1] if idx > 0 else None
 
     def compare_commits(self, *, from_: str | None, to: str) -> list[RawCommit]:
