@@ -38,13 +38,20 @@ def execute(
             "project access token or personal access token with the 'api' scope."
         )
 
-    # Artifacts are resolved before the tag is created: an --if-exists=fail conflict on
-    # a package must abort before any mutation happens, not after a tag has already been
-    # created that would then need manual cleanup on retry.
+    # The tag-existence check is a cheap, side-effect-free read, so it happens first and
+    # unconditionally: a real tag conflict must abort the run before any artifact is
+    # uploaded, not after. The actual (mutating) tag creation is deferred until after
+    # artifacts are resolved, so an --if-exists=fail conflict on a package still aborts
+    # before a tag gets created that would need manual cleanup on retry. Together these
+    # two orderings mean neither the tag-exists check nor the artifact-conflict check can
+    # be short-circuited by the other's mutation.
+    if client.tag_exists(settings.tag):
+        raise GitLabAPIError(f"Tag {settings.tag!r} already exists.")
+
     package_urls = _handle_artifacts(
         client, artifact_settings, settings.tag, if_exists=if_exists, dry_run=dry_run
     )
-    tag_created = _handle_tag(client, settings.tag, settings.ref, dry_run=dry_run)
+    tag_created = _create_tag(client, tag=settings.tag, ref=settings.ref, dry_run=dry_run)
 
     context = changelog.build_context(client, settings, packages=package_urls)
     changelog_text = changelog.render(context, template_path=template_path)
@@ -67,9 +74,9 @@ def execute(
     )
 
 
-def _handle_tag(client: GitlabClient, tag: str, ref: str, *, dry_run: bool) -> bool:
-    if client.tag_exists(tag):
-        raise GitLabAPIError(f"Tag {tag!r} already exists.")
+def _create_tag(client: GitlabClient, *, tag: str, ref: str, dry_run: bool) -> bool:
+    """Existence has already been checked (and would have raised) before this is called -
+    this is the write half only, so a caller never re-checks a fact it already has."""
     if dry_run:
         return False
     client.create_tag(tag=tag, ref=ref)

@@ -81,6 +81,37 @@ def test_tag_already_exists_raises_gitlab_api_error() -> None:
 
 
 @responses.activate
+def test_tag_already_exists_with_artifacts_raises_before_any_upload(tmp_path) -> None:
+    """Regression test: a real tag conflict must abort before any artifact is uploaded,
+    even though artifact resolution now runs before tag creation. The tag-existence
+    check happens first and unconditionally, so no PUT (package upload) call is ever
+    made once it raises."""
+    register_empty_release(tag="v1.2.3")
+    register_tag_get("v1.2.3", exists=True)
+    (tmp_path / "app.rpm").write_bytes(b"fake-rpm")
+
+    client = _client()
+    settings = _settings()
+    artifact_settings = ArtifactSettings(
+        source_path=tmp_path, pattern="*.rpm", package_name="myapp"
+    )
+
+    with pytest.raises(GitLabAPIError):
+        execute(
+            client,
+            settings,
+            dry_run=False,
+            artifact_settings=artifact_settings,
+            release_name="v1.2.3",
+            if_exists="fail",
+            template_path=None,
+        )
+
+    methods_called = {call.request.method for call in responses.calls}
+    assert "PUT" not in methods_called
+
+
+@responses.activate
 def test_dry_run_full_flow_reports_without_mutating() -> None:
     register_empty_release(tag="v1.2.3")
     register_tag_get("v1.2.3", exists=False)
