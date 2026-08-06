@@ -16,9 +16,10 @@ import rich_click as click
 from dotenv import load_dotenv
 from loguru import logger
 
-from gitlab_release import changelog, config, gitlab_client
+from gitlab_release import config, gitlab_client
 from gitlab_release import logging as log_setup
-from gitlab_release.errors import ConfigError, InternalError, ReleaseError
+from gitlab_release import release as release_flow
+from gitlab_release.errors import InternalError, ReleaseError
 
 
 @dataclass(frozen=True)
@@ -126,7 +127,7 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
     "--dry-run/--no-dry-run",
     default=True,
     envvar="RELEASE_DRY_RUN",
-    help="Preview only; --no-dry-run is reserved for a future release.",
+    help="Preview only; --no-dry-run creates the tag, release, and uploads artifacts.",
 )
 @click.option(
     "--template",
@@ -135,6 +136,39 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
     default=None,
     type=click.Path(path_type=Path, exists=True, dir_okay=False),
     help="Override the bundled changelog template.",
+)
+@click.option(
+    "--source-path",
+    envvar="RELEASE_SOURCE_PATH",
+    default=None,
+    type=click.Path(path_type=Path, exists=True, file_okay=False),
+    help="Directory of build artifacts to upload. Omit to skip artifact upload.",
+)
+@click.option(
+    "--artifact-pattern",
+    envvar="RELEASE_ARTIFACT_PATTERN",
+    default="*",
+    help="Glob pattern for artifacts, relative to --source-path.",
+)
+@click.option(
+    "--package-name",
+    envvar="RELEASE_PACKAGE_NAME",
+    default=None,
+    help="Generic package name. Defaults to the project's path slug.",
+)
+@click.option(
+    "--release-name",
+    envvar="RELEASE_NAME",
+    default=None,
+    help="GitLab release name. Defaults to the tag.",
+)
+@click.option(
+    "--if-exists",
+    envvar="RELEASE_IF_EXISTS",
+    default="fail",
+    type=click.Choice(["fail", "skip", "update"]),
+    help="Behavior when the release or a package file already exists. Tag creation "
+    "always fails if the tag already exists, regardless of this setting.",
 )
 @click.option(
     "--notify/--no-notify",
@@ -162,6 +196,11 @@ def release(
     ca_bundle: Path | None,
     dry_run: bool,
     template_path: Path | None,
+    source_path: Path | None,
+    artifact_pattern: str,
+    package_name: str | None,
+    release_name: str | None,
+    if_exists: str,
     notify: bool,
     smtp_host: str | None,
     smtp_port: int | None,
@@ -171,7 +210,8 @@ def release(
     smtp_to: str | None,
     smtp_starttls: bool,
 ) -> None:
-    """Show what a release would do, without creating anything."""
+    """Create a release: tag, upload artifacts, and publish it. Preview-only unless
+    --no-dry-run is passed."""
     ctx = click.get_current_context()
     assert ctx is not None
     run_ctx: RunContext = ctx.obj
@@ -206,13 +246,6 @@ def release(
         secrets=secrets,
     )
 
-    if not dry_run:
-        raise ConfigError(
-            "--no-dry-run is not supported yet: release creation, artifact upload, "
-            "and notification sending are not implemented in this build. "
-            "Only --dry-run is available."
-        )
-
     client = gitlab_client.GitlabClient(
         url=settings.gitlab_url,
         project_id=settings.project_id,
@@ -220,38 +253,60 @@ def release(
         is_job_token=settings.is_job_token,
         ca_bundle=settings.ca_bundle,
     )
-    context = changelog.build_context(client, settings)
-    changelog_text = changelog.render(context, template_path=template_path)
 
-    _run_release(
+    artifact_settings: config.ArtifactSettings | None = None
+    if source_path is not None:
+        resolved_package_name = package_name or client.project_path()
+        artifact_settings = config.load_artifact_settings(
+            source_path=source_path,
+            pattern=artifact_pattern,
+            package_name=resolved_package_name,
+        )
+
+    result = release_flow.execute(
+        client,
+        settings,
+        dry_run=dry_run,
+        artifact_settings=artifact_settings,
+        release_name=release_name or settings.tag,
+        if_exists=if_exists,
+        template_path=template_path,
+    )
+
+    _print_summary(
         settings=settings,
-        changelog_text=changelog_text,
+        result=result,
         notify_settings=notify_settings,
+        dry_run=dry_run,
         json_output=run_ctx.json_output,
     )
 
 
-def _run_release(
+def _print_summary(
     *,
     settings: config.Settings,
-    changelog_text: str,
+    result: release_flow.ReleaseResult,
     notify_settings: config.NotifySettings | None,
+    dry_run: bool,
     json_output: bool,
 ) -> None:
-    """Business logic seam - no click objects below this line. Currently prints a
-    projection of the validated config plus a real, GitLab-sourced changelog. Does not
-    call notify.send_notification: dry-run is still the only supported mode, so the
-    notification is always previewed, never sent.
+    """Business logic seam - no click objects below this line. Prints what was (or,
+    under --dry-run, would be) created: tag, release, uploaded packages, and the
+    changelog. Does not call notify.send_notification: the notification is always
+    previewed here, never sent - actually sending it is a future slice.
     """
-    logger.debug("Building dry-run summary for tag={}", settings.tag)
+    logger.debug("Building summary for tag={}", settings.tag)
     subject = f"Release {settings.tag}"
     summary: dict[str, Any] = {
-        "dry_run": True,
+        "dry_run": dry_run,
         "gitlab_url": settings.gitlab_url,
         "project_id": settings.project_id,
         "tag": settings.tag,
         "ref": settings.ref,
-        "changelog": changelog_text,
+        "tag_created": result.tag_created,
+        "release_url": result.release_url,
+        "packages": result.package_urls,
+        "changelog": result.changelog_text,
         # settings.token is intentionally never placed into this dict.
     }
     if notify_settings is not None:
@@ -261,13 +316,19 @@ def _run_release(
         click.echo(json.dumps(summary))
         return
 
+    verb = "Would create" if dry_run else "Created"
+    prefix = "[dry-run] " if dry_run else ""
     click.echo(
-        f"[dry-run] Would create release for tag {settings.tag!r} at ref "
-        f"{settings.ref!r} on project {settings.project_id!r} "
-        f"({settings.gitlab_url}). No changes made."
+        f"{prefix}{verb} tag {settings.tag!r} at ref {settings.ref!r} on project "
+        f"{settings.project_id!r} ({settings.gitlab_url})."
     )
-    click.echo("\n--- Changelog preview ---")
-    click.echo(changelog_text)
+    for pkg in result.package_urls:
+        label = "Would upload" if dry_run else "Uploaded"
+        click.echo(f"{prefix}{label} {pkg['name']} -> {pkg['url']}")
+    if result.release_url:
+        click.echo(f"Release: {result.release_url}")
+    click.echo("\n--- Changelog preview ---" if dry_run else "\n--- Changelog ---")
+    click.echo(result.changelog_text)
     if notify_settings is not None:
         click.echo(
             f"[dry-run] Would send notification to {notify_settings.smtp_to} "
