@@ -1,3 +1,5 @@
+import json as json_module
+
 import pytest
 import requests
 import responses
@@ -13,6 +15,8 @@ from tests.gitlab_fixtures import (
     register_mr,
     register_mr_approvals,
     register_project,
+    register_tag_create,
+    register_tag_get,
     register_tags,
 )
 
@@ -206,3 +210,82 @@ def test_project_path_returns_slug_from_path_with_namespace() -> None:
     client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
 
     assert client.project_path() == "project"
+
+
+@responses.activate
+def test_tag_exists_true_when_found() -> None:
+    register_project()
+    register_tag_get("v1.2.3", exists=True)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.tag_exists("v1.2.3") is True
+
+
+@responses.activate
+def test_tag_exists_false_when_not_found() -> None:
+    register_project()
+    register_tag_get("v1.2.3", exists=False)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+
+    assert client.tag_exists("v1.2.3") is False
+
+
+@responses.activate
+def test_create_tag_posts_tag_name_and_ref() -> None:
+    register_project()
+    register_tag_create("v1.2.3")
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    client.create_tag(tag="v1.2.3", ref="abc123")
+
+    sent = responses.calls[-1].request
+    assert sent.method == "POST"
+    body = json_module.loads(sent.body)
+    assert body == {"tag_name": "v1.2.3", "ref": "abc123"}
+
+
+@responses.activate
+def test_create_tag_retries_on_500_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gitlab_release.gitlab_client as gc
+
+    monkeypatch.setattr(gc.time, "sleep", lambda _seconds: None)
+    register_project()
+    responses.add(
+        responses.POST,
+        f"{API}/projects/{PROJECT_ID}/repository/tags",
+        json={"message": "error"},
+        status=500,
+    )
+    responses.add(
+        responses.POST,
+        f"{API}/projects/{PROJECT_ID}/repository/tags",
+        json={"name": "v1.2.3"},
+        status=201,
+    )
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    client.create_tag(tag="v1.2.3", ref="abc123")  # does not raise
+
+    assert len(responses.calls) == 3  # project GET + 2 tag POSTs
+
+
+@responses.activate
+def test_create_tag_does_not_retry_on_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    import gitlab_release.gitlab_client as gc
+
+    monkeypatch.setattr(gc.time, "sleep", lambda _seconds: None)
+    register_project()
+    responses.add(
+        responses.POST,
+        f"{API}/projects/{PROJECT_ID}/repository/tags",
+        json={"message": "Tag already exists"},
+        status=400,
+    )
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    with pytest.raises(GitLabAPIError):
+        client.create_tag(tag="v1.2.3", ref="abc123")
+
+    assert len(responses.calls) == 2  # project GET + exactly one tag POST, no retry

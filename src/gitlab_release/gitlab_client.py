@@ -75,6 +75,24 @@ class GitlabClient:
         default generic package name. No API call - reads the already-fetched Project."""
         return self._project.path_with_namespace.rsplit("/", 1)[-1]
 
+    def tag_exists(self, tag: str) -> bool:
+        def _get() -> bool:
+            try:
+                self._project.tags.get(tag)
+            except GitlabGetError as exc:
+                if exc.response_code == 404:
+                    return False
+                raise
+            return True
+
+        return self._with_retries(_get, description=f"check whether tag {tag!r} exists")
+
+    def create_tag(self, *, tag: str, ref: str) -> None:
+        def _create() -> None:
+            self._project.tags.create({"tag_name": tag, "ref": ref})
+
+        self._with_retries(_create, description=f"create tag {tag!r}")
+
     def previous_tag(self, *, before: str) -> str | None:
         try:
             tags = self._project.tags.list(all=True)

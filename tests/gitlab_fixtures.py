@@ -82,6 +82,26 @@ def register_mr_approvals(
     )
 
 
+def register_tag_get(tag: str, *, exists: bool) -> None:
+    status = 200 if exists else 404
+    body = {"name": tag} if exists else {"message": "404 Tag Not Found"}
+    responses.add(
+        responses.GET,
+        f"{API}/projects/{PROJECT_ID}/repository/tags/{tag}",
+        json=body,
+        status=status,
+    )
+
+
+def register_tag_create(tag: str, *, status: int = 201) -> None:
+    responses.add(
+        responses.POST,
+        f"{API}/projects/{PROJECT_ID}/repository/tags",
+        json={"name": tag},
+        status=status,
+    )
+
+
 def register_empty_release(tag: str = "v1.2.3") -> None:
     """The common case: one tag (no predecessor), zero commits in range - used by
     cli.py tests that only care about the dry-run flow working, not changelog content.
