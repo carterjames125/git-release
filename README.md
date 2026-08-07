@@ -12,14 +12,27 @@ including an SMTP notification, without creating or uploading anything.
 
 **Roadmap (not yet implemented):**
 - Actually sending the SMTP notification — `--notify` only previews it today.
-- Docker packaging — the multi-stage build described in [CLAUDE.md](CLAUDE.md) doesn't exist yet;
-  run the CLI via `uv` (see [Running in GitLab CI](#running-in-gitlab-ci)) until it does.
 
 ## Install
 
 ```bash
 uv sync --all-extras
 ```
+
+### Docker
+
+```bash
+docker build -t gitlab-release:dev .
+
+docker run --rm --env-file .env -v "$PWD/dist:/artifacts:ro" gitlab-release:dev \
+  release --source-path /artifacts --dry-run
+```
+
+Multi-stage build (`uv` resolves and installs into a venv in the builder stage; the runtime stage
+copies just that venv onto a slim base and runs as a non-root user, UID 1000). The image's
+`ENTRYPOINT` is the CLI itself, so a CI job's `script:` passes subcommands directly:
+`gitlab-release release --no-dry-run ...`. Artifacts should be mounted read-only, as above — the
+tool never writes to `--source-path`.
 
 ## Usage
 
@@ -107,16 +120,14 @@ token or personal access token with the `api` scope is required):
 ```yaml
 release:
   stage: release
-  image: python:3.12-slim  # a dedicated image isn't built yet - see Roadmap above
+  image: $CI_REGISTRY_IMAGE/gitlab-release:latest  # built from this repo's Dockerfile, pushed
+                                                     # to a registry your other projects can pull
   rules:
     - changes:
         - scripts/**/*
         - ansible/**/*
-  before_script:
-    - pip install uv
-    - uv sync --all-extras
   script:
-    - uv run gitlab-release release --no-dry-run
+    - release --no-dry-run
       --tag "$NEXT_VERSION"
       --source-path ./dist
       --artifact-pattern '*.rpm'
