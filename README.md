@@ -8,8 +8,12 @@ notification. See [CLAUDE.md](CLAUDE.md) for the full target design.
 build a real changelog from commits, contributors, and merge request approvers, and — with
 `--no-dry-run` — creates the git tag and GitLab Release and uploads build artifacts to the
 project's Generic Package Registry. `--dry-run` (the default) previews all of the above,
-including an SMTP notification, without creating or uploading anything. Actually sending the
-notification email and Docker packaging are not implemented yet.
+including an SMTP notification, without creating or uploading anything.
+
+**Roadmap (not yet implemented):**
+- Actually sending the SMTP notification — `--notify` only previews it today.
+- Docker packaging — the multi-stage build described in [CLAUDE.md](CLAUDE.md) doesn't exist yet;
+  run the CLI via `uv` (see [Running in GitLab CI](#running-in-gitlab-ci)) until it does.
 
 ## Install
 
@@ -41,6 +45,19 @@ uv run gitlab-release --json release
 # Preview an SMTP notification (never actually sent yet)
 uv run gitlab-release release --notify \
   --smtp-host smtp.example.com --smtp-from releases@example.com --smtp-to team@example.com
+
+# Full release: create the tag, upload every RPM under ./dist, and publish the GitLab Release
+GITLAB_URL=https://gitlab.example.com \
+GITLAB_PROJECT_ID=123 \
+GITLAB_TOKEN=glpat-xxxx \
+RELEASE_TAG=1.2.3-1 \
+  uv run gitlab-release release --no-dry-run \
+    --source-path ./dist --artifact-pattern '*.rpm'
+
+# Group the changelog by GitLab MR label instead of Conventional Commit type, and treat an
+# already-uploaded package file as success rather than failing the run
+uv run gitlab-release release --no-dry-run \
+  --source-path ./dist --changelog-group-by label --if-exists skip
 ```
 
 ### `release` options
@@ -77,6 +94,51 @@ instead of raw lists rendered via bullet-list loops. If you maintain a custom `-
 from an earlier version of the bundled default, update it to match — a stale copy fails loudly
 (`StrictUndefined` raises a template error, exit code 5) rather than silently rendering blank
 sections.
+
+## Running in GitLab CI
+
+A job running inside GitLab CI needs almost no explicit configuration — `GITLAB_URL`,
+`GITLAB_PROJECT_ID`, and the commit ref are picked up automatically from GitLab's predefined
+`CI_SERVER_URL` / `CI_PROJECT_ID` / `CI_COMMIT_SHA` variables. You still need to supply a tag
+(this tool consumes an already-decided tag — it does not compute the next version itself, see
+`--tag` above) and a token capable of creating tags (`CI_JOB_TOKEN` cannot — a project access
+token or personal access token with the `api` scope is required):
+
+```yaml
+release:
+  stage: release
+  image: python:3.12-slim  # a dedicated image isn't built yet - see Roadmap above
+  rules:
+    - changes:
+        - scripts/**/*
+        - ansible/**/*
+  before_script:
+    - pip install uv
+    - uv sync --all-extras
+  script:
+    - uv run gitlab-release release --no-dry-run
+      --tag "$NEXT_VERSION"
+      --source-path ./dist
+      --artifact-pattern '*.rpm'
+  variables:
+    GITLAB_TOKEN: $RELEASE_PROJECT_TOKEN
+```
+
+`NEXT_VERSION` stands in for whatever computes the next tag in your pipeline (a version-bump
+script, a manually-set CI/CD variable, etc.). `RELEASE_PROJECT_TOKEN` should be a
+[project access token](https://docs.gitlab.com/ee/user/project/settings/project_access_tokens.html)
+or PAT with the `api` scope, stored as a masked/protected CI/CD variable — never `CI_JOB_TOKEN`.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Unexpected/internal error |
+| 2 | Usage or configuration error (missing settings, bad flag combination) |
+| 3 | GitLab API error (auth, permissions, 5xx after retries exhausted) |
+| 4 | Artifact error (source path empty/unreadable, package upload failed) |
+| 5 | Template rendering error |
 
 ## Development
 
