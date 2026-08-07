@@ -5,8 +5,10 @@ import pytest
 from gitlab_release.changelog import (
     ChangelogContext,
     Contributor,
+    _markdown_table,
     build_context,
     dedupe_contributors,
+    group_commits_by_label,
     group_commits_by_type,
     parse_commit,
     render,
@@ -238,3 +240,54 @@ def test_render_strict_undefined_raises_template_error_on_typo(tmp_path: Path) -
 
     with pytest.raises(TemplateError):
         render(_sample_context(), template_path=custom)
+
+
+def test_group_commits_by_label_multi_label_commit_appears_in_each_group() -> None:
+    commits = [
+        parse_commit(RawCommit("a", "thing one", "thing one", "A", "a@example.com")),
+    ]
+    labels_by_sha = {"a": ["bug", "urgent"]}
+
+    grouped = group_commits_by_label(commits, labels_by_sha)
+
+    assert [c.sha for c in grouped["bug"]] == ["a"]
+    assert [c.sha for c in grouped["urgent"]] == ["a"]
+
+
+def test_group_commits_by_label_no_labels_goes_to_uncategorized_last() -> None:
+    commits = [
+        parse_commit(RawCommit("a", "thing one", "thing one", "A", "a@example.com")),
+        parse_commit(RawCommit("b", "thing two", "thing two", "B", "b@example.com")),
+    ]
+    labels_by_sha = {"a": ["bug"]}  # "b" has no entry - no MR, or an MR with no labels
+
+    grouped = group_commits_by_label(commits, labels_by_sha)
+
+    assert list(grouped.keys()) == ["bug", "uncategorized"]
+    assert [c.sha for c in grouped["uncategorized"]] == ["b"]
+
+
+def test_markdown_table_columns_align_to_widest_cell() -> None:
+    result = _markdown_table(
+        ["Name", "Email"], [["Alice", "alice@example.com"], ["Bob", "x@y.com"]]
+    )
+    lines = result.split("\n")
+
+    assert len(lines) == 4  # header, separator, 2 data rows
+    # "Auto-sized" means every row is the same total width - that's what makes the
+    # pipes line up when the raw markdown is read as plain text.
+    assert len({len(line) for line in lines}) == 1, f"table rows are not aligned: {lines}"
+    assert lines[0].startswith("| Name") and "Email" in lines[0]
+    assert set(lines[1].replace("|", "").strip()) <= {"-", " "}
+    assert "Alice" in lines[2] and "alice@example.com" in lines[2]
+    assert "Bob" in lines[3] and "x@y.com" in lines[3]
+
+
+def test_markdown_table_empty_rows_returns_empty_string() -> None:
+    assert _markdown_table(["Name"], []) == ""
+
+
+def test_markdown_table_escapes_pipe_in_cell_content() -> None:
+    result = _markdown_table(["Name"], [["A|B"]])
+
+    assert "A\\|B" in result

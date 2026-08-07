@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +61,22 @@ def group_commits_by_type(commits: list[ParsedCommit]) -> dict[str, list[ParsedC
         grouped.setdefault(commit.type, []).append(commit)
     if "other" in grouped:
         grouped["other"] = grouped.pop("other")
+    return grouped
+
+
+def group_commits_by_label(
+    commits: list[ParsedCommit], labels_by_sha: dict[str, list[str]]
+) -> dict[str, list[ParsedCommit]]:
+    grouped: dict[str, list[ParsedCommit]] = {}
+    for commit in commits:
+        labels = labels_by_sha.get(commit.sha, [])
+        if not labels:
+            grouped.setdefault("uncategorized", []).append(commit)
+            continue
+        for label in labels:
+            grouped.setdefault(label, []).append(commit)
+    if "uncategorized" in grouped:
+        grouped["uncategorized"] = grouped.pop("uncategorized")
     return grouped
 
 
@@ -123,6 +140,31 @@ def build_context(
 
 _DEFAULT_TEMPLATE_DIR = Path(__file__).parent / "templates"
 _DEFAULT_TEMPLATE_NAME = "changelog.md.j2"
+
+
+def _escape_table_cell(value: str) -> str:
+    return value.replace("|", "\\|")
+
+
+def _markdown_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> str:
+    """Render a GitHub/GitLab-flavored Markdown table with each column padded to its
+    widest cell, so the raw source reads aligned - not just the rendered HTML."""
+    if not rows:
+        return ""
+    escaped_headers = [_escape_table_cell(h) for h in headers]
+    escaped_rows = [[_escape_table_cell(cell) for cell in row] for row in rows]
+    widths = [
+        max(len(escaped_headers[i]), max((len(row[i]) for row in escaped_rows), default=0))
+        for i in range(len(escaped_headers))
+    ]
+
+    def _fmt_row(cells: Sequence[str]) -> str:
+        return "| " + " | ".join(cell.ljust(widths[i]) for i, cell in enumerate(cells)) + " |"
+
+    header_line = _fmt_row(escaped_headers)
+    sep_line = "| " + " | ".join("-" * w for w in widths) + " |"
+    body_lines = [_fmt_row(row) for row in escaped_rows]
+    return "\n".join([header_line, sep_line, *body_lines])
 
 
 def render(context: ChangelogContext, template_path: Path | None = None) -> str:
