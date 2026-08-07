@@ -31,6 +31,12 @@ class RawCommit:
     author_email: str
 
 
+@dataclass(frozen=True)
+class MrMetadata:
+    approvers: list[str]
+    labels: list[str]
+
+
 class GitlabClient:
     """Constructed once from `Settings`, passed down to changelog.py."""
 
@@ -231,8 +237,8 @@ class GitlabClient:
             for c in result["commits"]
         ]
 
-    def mr_approvers(self, commit_shas: Sequence[str]) -> dict[str, list[str]]:
-        approvers: dict[str, list[str]] = {}
+    def mr_metadata(self, commit_shas: Sequence[str]) -> dict[str, MrMetadata]:
+        metadata: dict[str, MrMetadata] = {}
         for sha in commit_shas:
             try:
                 commit = self._project.commits.get(sha, lazy=True)
@@ -241,9 +247,19 @@ class GitlabClient:
                 raise GitLabAPIError(f"Failed to look up merge requests for {sha}: {exc}") from exc
 
             names: list[str] = []
+            labels: list[str] = []
             for mr_data in mrs:
                 try:
                     mr = self._project.mergerequests.get(mr_data["iid"])
+                except GitlabGetError as exc:
+                    if exc.response_code in (403, 404):
+                        continue
+                    raise GitLabAPIError(f"Failed to fetch MR {mr_data['iid']}: {exc}") from exc
+                # Labels come off the MR object itself, already fetched above - capture them
+                # before the separate approvals call, which can independently 403 (Free tier,
+                # no approval rules configured) without losing labels already in hand.
+                labels.extend(mr.labels)
+                try:
                     approval = mr.approvals.get()
                     names.extend(a["user"]["name"] for a in approval.approved_by)
                 except GitlabGetError as exc:
@@ -252,6 +268,6 @@ class GitlabClient:
                     raise GitLabAPIError(
                         f"Failed to fetch approvals for MR {mr_data['iid']}: {exc}"
                     ) from exc
-            if names:
-                approvers[sha] = names
-        return approvers
+            if names or labels:
+                metadata[sha] = MrMetadata(approvers=names, labels=labels)
+        return metadata

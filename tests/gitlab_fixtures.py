@@ -57,11 +57,11 @@ def register_commit_merge_requests(sha: str, mrs: list[dict[str, int]]) -> None:
     )
 
 
-def register_mr(iid: int) -> None:
+def register_mr(iid: int, *, labels: list[str] | None = None) -> None:
     responses.add(
         responses.GET,
         f"{API}/projects/{PROJECT_ID}/merge_requests/{iid}",
-        json={"id": iid, "iid": iid},
+        json={"id": iid, "iid": iid, "labels": labels or []},
         status=200,
     )
 

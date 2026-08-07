@@ -6,7 +6,7 @@ import requests
 import responses
 
 from gitlab_release.errors import ArtifactError, GitLabAPIError
-from gitlab_release.gitlab_client import GitlabClient
+from gitlab_release.gitlab_client import GitlabClient, MrMetadata
 from tests.gitlab_fixtures import (
     API,
     PROJECT_ID,
@@ -200,40 +200,56 @@ def test_init_wraps_connection_failure_as_gitlab_api_error() -> None:
 
 
 @responses.activate
-def test_mr_approvers_returns_names_by_sha() -> None:
+def test_mr_metadata_returns_approvers_and_labels_by_sha() -> None:
     register_project()
     register_commit_merge_requests("abc123", [{"iid": 7}])
-    register_mr(7)
+    register_mr(7, labels=["bug"])
     register_mr_approvals(7, approved_by=["Bob", "Carol"])
 
     client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
-    approvers = client.mr_approvers(["abc123"])
+    metadata = client.mr_metadata(["abc123"])
 
-    assert approvers == {"abc123": ["Bob", "Carol"]}
+    assert metadata == {"abc123": MrMetadata(approvers=["Bob", "Carol"], labels=["bug"])}
 
 
 @responses.activate
-def test_mr_approvers_degrades_to_empty_on_403() -> None:
+def test_mr_metadata_keeps_labels_when_approvals_403s() -> None:
+    # Labels come off the MR object itself (already fetched successfully); a 403 on the
+    # separate approvals sub-resource (e.g. Free tier, no approval rules) must not lose
+    # labels that were already in hand.
+    register_project()
+    register_commit_merge_requests("abc123", [{"iid": 7}])
+    register_mr(7, labels=["bug"])
+    register_mr_approvals(7, status=403)
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    metadata = client.mr_metadata(["abc123"])
+
+    assert metadata == {"abc123": MrMetadata(approvers=[], labels=["bug"])}
+
+
+@responses.activate
+def test_mr_metadata_degrades_to_empty_on_403_with_no_labels() -> None:
     register_project()
     register_commit_merge_requests("abc123", [{"iid": 7}])
     register_mr(7)
     register_mr_approvals(7, status=403)
 
     client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
-    approvers = client.mr_approvers(["abc123"])
+    metadata = client.mr_metadata(["abc123"])
 
-    assert approvers == {}
+    assert metadata == {}
 
 
 @responses.activate
-def test_mr_approvers_empty_when_commit_has_no_merge_requests() -> None:
+def test_mr_metadata_empty_when_commit_has_no_merge_requests() -> None:
     register_project()
     register_commit_merge_requests("abc123", [])
 
     client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
-    approvers = client.mr_approvers(["abc123"])
+    metadata = client.mr_metadata(["abc123"])
 
-    assert approvers == {}
+    assert metadata == {}
 
 
 @responses.activate
