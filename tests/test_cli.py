@@ -6,11 +6,17 @@ from click.testing import CliRunner
 
 from gitlab_release.cli import cli
 from tests.gitlab_fixtures import (
+    register_commit_merge_requests,
+    register_commits_list,
     register_empty_release,
+    register_mr,
+    register_mr_approvals,
+    register_project,
     register_release_create,
     register_release_get,
     register_tag_create,
     register_tag_get,
+    register_tags,
 )
 
 VALID_ENV = {
@@ -201,3 +207,38 @@ def test_notify_missing_smtp_config_exits_2() -> None:
 
     assert result.exit_code == 2
     assert "smtp_host" in result.stderr
+
+
+def test_changelog_group_by_rejects_invalid_choice() -> None:
+    runner = CliRunner()
+    result = runner.invoke(cli, ["release", "--changelog-group-by", "bogus"], env=VALID_ENV)
+
+    assert result.exit_code == 2
+
+
+@responses.activate
+def test_changelog_group_by_label_changes_dry_run_output() -> None:
+    register_project()
+    register_tags([{"name": "v1.2.3", "committed_date": "2026-01-01T00:00:00.000Z"}])
+    register_tag_get("v1.2.3", exists=False)
+    register_release_get("v1.2.3", exists=False)
+    register_commits_list(
+        [
+            {
+                "id": "abc123",
+                "title": "did a bug fix",
+                "message": "did a bug fix",
+                "author_name": "Alice",
+                "author_email": "alice@example.com",
+            }
+        ]
+    )
+    register_commit_merge_requests("abc123", [{"iid": 7}])
+    register_mr(7, labels=["bug"])
+    register_mr_approvals(7, approved_by=[])
+
+    runner = CliRunner()
+    result = runner.invoke(cli, ["release", "--changelog-group-by", "label"], env=VALID_ENV)
+
+    assert result.exit_code == 0, result.output + (result.stderr or "")
+    assert "## bug" in result.stdout

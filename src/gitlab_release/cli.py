@@ -171,6 +171,14 @@ def cli(ctx: click.Context, verbose: bool, quiet: bool, json_output: bool) -> No
     "always fails if the tag already exists, regardless of this setting.",
 )
 @click.option(
+    "--changelog-group-by",
+    envvar="RELEASE_CHANGELOG_GROUP_BY",
+    default="type",
+    type=click.Choice(["type", "label"]),
+    help="Group changelog commits by Conventional Commit type, or by GitLab MR label "
+    "(useful for teams without a commit-message convention).",
+)
+@click.option(
     "--notify/--no-notify",
     default=False,
     envvar="RELEASE_NOTIFY",
@@ -201,6 +209,7 @@ def release(
     package_name: str | None,
     release_name: str | None,
     if_exists: str,
+    changelog_group_by: str,
     notify: bool,
     smtp_host: str | None,
     smtp_port: int | None,
@@ -271,6 +280,7 @@ def release(
         release_name=release_name or settings.tag,
         if_exists=if_exists,
         template_path=template_path,
+        changelog_group_by=changelog_group_by,
     )
 
     _print_summary(
