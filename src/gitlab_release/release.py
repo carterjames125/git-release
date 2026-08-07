@@ -31,6 +31,7 @@ def execute(
     release_name: str,
     if_exists: str,
     template_path: Path | None,
+    changelog_group_by: str = "type",
 ) -> ReleaseResult:
     if settings.is_job_token and not dry_run:
         raise ConfigError(
@@ -58,7 +59,9 @@ def execute(
     tag_created = _create_tag(client, tag=settings.tag, ref=settings.ref, dry_run=dry_run)
 
     context = changelog.build_context(client, settings, packages=package_urls)
-    changelog_text = changelog.render(context, template_path=template_path)
+    changelog_text = changelog.render(
+        context, template_path=template_path, group_by=changelog_group_by
+    )
 
     release_url = _handle_release(
         client,

@@ -8,9 +8,12 @@ from gitlab_release.release import execute
 from tests.gitlab_fixtures import (
     PROJECT_ID,
     register_commit_merge_requests,
+    register_commits_list,
     register_compare,
     register_empty_release,
     register_generic_package_upload,
+    register_mr,
+    register_mr_approvals,
     register_package_files_list,
     register_packages_list,
     register_project,
@@ -356,3 +359,43 @@ def test_release_already_exists_if_exists_update_raises_config_error() -> None:
             if_exists="update",
             template_path=None,
         )
+
+
+@responses.activate
+def test_no_dry_run_changelog_group_by_label_threads_through(tmp_path) -> None:
+    register_project()
+    register_tags([{"name": "v1.2.3", "committed_date": "2026-01-01T00:00:00.000Z"}])
+    register_tag_get("v1.2.3", exists=False)
+    register_tag_create("v1.2.3")
+    register_commits_list(
+        [
+            {
+                "id": "abc123",
+                "title": "did a bug fix",
+                "message": "did a bug fix",
+                "author_name": "Alice",
+                "author_email": "alice@example.com",
+            }
+        ]
+    )
+    register_commit_merge_requests("abc123", [{"iid": 7}])
+    register_mr(7, labels=["bug"])
+    register_mr_approvals(7, approved_by=[])
+    register_release_get("v1.2.3", exists=False)
+    register_release_create("v1.2.3")
+
+    client = _client()
+    settings = _settings()
+
+    result = execute(
+        client,
+        settings,
+        dry_run=False,
+        artifact_settings=None,
+        release_name="v1.2.3",
+        if_exists="fail",
+        template_path=None,
+        changelog_group_by="label",
+    )
+
+    assert "## bug" in result.changelog_text
