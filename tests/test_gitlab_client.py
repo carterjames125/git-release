@@ -253,6 +253,24 @@ def test_mr_metadata_empty_when_commit_has_no_merge_requests() -> None:
 
 
 @responses.activate
+def test_mr_metadata_dedupes_labels_across_multiple_merge_requests() -> None:
+    # A commit reachable from two MRs that both carry "bug" (e.g. one merged to a release
+    # branch, a backport MR merged to main) must not duplicate the commit under one changelog
+    # section. "backport" proves the dedup doesn't drop labels that aren't duplicated.
+    register_project()
+    register_commit_merge_requests("abc123", [{"iid": 7}, {"iid": 8}])
+    register_mr(7, labels=["bug"])
+    register_mr_approvals(7, approved_by=["Bob"])
+    register_mr(8, labels=["bug", "backport"])
+    register_mr_approvals(8, approved_by=["Carol"])
+
+    client = GitlabClient(url="https://gitlab.example.com", project_id=PROJECT_ID, token="t")
+    metadata = client.mr_metadata(["abc123"])
+
+    assert metadata["abc123"].labels == ["bug", "backport"]
+
+
+@responses.activate
 def test_project_path_returns_slug_from_path_with_namespace() -> None:
     register_project()
 

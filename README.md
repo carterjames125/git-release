@@ -54,6 +54,7 @@ uv run gitlab-release release --notify \
 | `--ca-bundle` | `REQUESTS_CA_BUNDLE` | — | For self-hosted instances |
 | `--dry-run` / `--no-dry-run` | `RELEASE_DRY_RUN` | — | Default on; `--no-dry-run` creates the tag, release, and uploads artifacts |
 | `--template` | `RELEASE_TEMPLATE` | — | Override the bundled changelog template |
+| `--changelog-group-by` | `RELEASE_CHANGELOG_GROUP_BY` | — | `type` / `label`, default `type`; groups changelog sections by Conventional Commit type or by the commit's GitLab MR labels (useful for teams without a commit-message convention) |
 | `--source-path` | `RELEASE_SOURCE_PATH` | — | Directory of build artifacts to upload; omit to skip artifact upload |
 | `--artifact-pattern` | `RELEASE_ARTIFACT_PATTERN` | — | Glob pattern for artifacts, relative to `--source-path`; defaults to `*` |
 | `--package-name` | `RELEASE_PACKAGE_NAME` | — | Generic package name; defaults to the project's path slug |
@@ -68,6 +69,14 @@ uv run gitlab-release release --notify \
 
 Top-level flags (`--verbose`/`-v`, `--quiet`/`-q`, `--json`) go before the subcommand:
 `gitlab-release --verbose release ...`.
+
+**Note on `--template`:** the bundled template's `commits_by_type` context variable was renamed
+to `commits_by_group` (loop variable `type` → `group_name`), and the Contributors/Approvers
+sections are now passed as precomputed `contributors_table`/`approvers_table` markdown strings
+instead of raw lists rendered via bullet-list loops. If you maintain a custom `--template` copied
+from an earlier version of the bundled default, update it to match — a stale copy fails loudly
+(`StrictUndefined` raises a template error, exit code 5) rather than silently rendering blank
+sections.
 
 ## Development
 

@@ -269,5 +269,5 @@ class GitlabClient:
                         f"Failed to fetch approvals for MR {mr_data['iid']}: {exc}"
                     ) from exc
             if names or labels:
-                metadata[sha] = MrMetadata(approvers=names, labels=labels)
+                metadata[sha] = MrMetadata(approvers=names, labels=list(dict.fromkeys(labels)))
         return metadata
