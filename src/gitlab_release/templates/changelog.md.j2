@@ -5,8 +5,8 @@ Released {{ released_at }}
 Changes since {{ previous_tag }}.
 {% endif %}
 
-{% for type, group in commits_by_type.items() %}
-## {{ type }}
+{% for group_name, group in commits_by_group.items() %}
+## {{ group_name }}
 
 {% for commit in group %}
 - {{ commit.subject }} ({{ commit.sha[:8] }})
@@ -16,17 +16,13 @@ Changes since {{ previous_tag }}.
 {% if contributors %}
 ## Contributors
 
-{% for contributor in contributors %}
-- {{ contributor.name }}
-{% endfor %}
+{{ contributors_table }}
 
 {% endif %}
 {% if approvers %}
 ## Approvers
 
-{% for approver in approvers %}
-- {{ approver }}
-{% endfor %}
+{{ approvers_table }}
 
 {% endif %}
 {% if packages %}

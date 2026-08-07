@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -13,7 +13,7 @@ from jinja2 import FileSystemLoader, StrictUndefined
 from jinja2.sandbox import SandboxedEnvironment
 
 from gitlab_release.errors import TemplateError
-from gitlab_release.gitlab_client import RawCommit
+from gitlab_release.gitlab_client import MrMetadata, RawCommit
 
 if TYPE_CHECKING:
     from gitlab_release.config import Settings
@@ -109,6 +109,7 @@ class ChangelogContext:
     contributors: list[Contributor]
     approvers: list[str]
     packages: list[dict[str, str]]
+    labels_by_sha: dict[str, list[str]] = field(default_factory=dict)
 
 
 def build_context(
@@ -124,8 +125,9 @@ def build_context(
     raw_commits = client.compare_commits(from_=previous_tag, to=settings.ref)
     commits = [parse_commit(rc) for rc in raw_commits]
     contributors = dedupe_contributors(commits)
-    approvers_by_sha = client.mr_approvers([c.sha for c in commits])
-    approvers = sorted({name for names in approvers_by_sha.values() for name in names})
+    metadata_by_sha: dict[str, MrMetadata] = client.mr_metadata([c.sha for c in commits])
+    approvers = sorted({name for meta in metadata_by_sha.values() for name in meta.approvers})
+    labels_by_sha = {sha: meta.labels for sha, meta in metadata_by_sha.items() if meta.labels}
     return ChangelogContext(
         tag=settings.tag,
         previous_tag=previous_tag,
@@ -135,6 +137,7 @@ def build_context(
         contributors=contributors,
         approvers=approvers,
         packages=list(packages or []),
+        labels_by_sha=labels_by_sha,
     )
 
 
@@ -167,7 +170,11 @@ def _markdown_table(headers: Sequence[str], rows: Sequence[Sequence[str]]) -> st
     return "\n".join([header_line, sep_line, *body_lines])
 
 
-def render(context: ChangelogContext, template_path: Path | None = None) -> str:
+def render(
+    context: ChangelogContext,
+    template_path: Path | None = None,
+    group_by: str = "type",
+) -> str:
     if template_path is not None:
         loader = FileSystemLoader(str(template_path.parent))
         template_name = template_path.name
@@ -182,7 +189,14 @@ def render(context: ChangelogContext, template_path: Path | None = None) -> str:
         keep_trailing_newline=True,
         undefined=StrictUndefined,
     )
-    commits_by_type = group_commits_by_type(context.commits)
+    if group_by == "label":
+        commits_by_group = group_commits_by_label(context.commits, context.labels_by_sha)
+    else:
+        commits_by_group = group_commits_by_type(context.commits)
+    contributors_table = _markdown_table(
+        ["Name", "Email"], [[c.name, c.email] for c in context.contributors]
+    )
+    approvers_table = _markdown_table(["Approver"], [[a] for a in context.approvers])
     try:
         template = env.get_template(template_name)
         return template.render(
@@ -190,9 +204,11 @@ def render(context: ChangelogContext, template_path: Path | None = None) -> str:
             previous_tag=context.previous_tag,
             project=context.project,
             released_at=context.released_at,
-            commits_by_type=commits_by_type,
+            commits_by_group=commits_by_group,
             contributors=context.contributors,
+            contributors_table=contributors_table,
             approvers=context.approvers,
+            approvers_table=approvers_table,
             packages=context.packages,
         )
     except Exception as exc:

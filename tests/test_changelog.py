@@ -15,7 +15,7 @@ from gitlab_release.changelog import (
 )
 from gitlab_release.config import Settings
 from gitlab_release.errors import TemplateError
-from gitlab_release.gitlab_client import RawCommit
+from gitlab_release.gitlab_client import MrMetadata, RawCommit
 
 
 def test_parse_commit_extracts_conventional_type_and_scope() -> None:
@@ -106,11 +106,11 @@ class _FakeGitlabClient:
         self,
         previous: str | None,
         commits: list[RawCommit],
-        approvers: dict[str, list[str]],
+        metadata: dict[str, MrMetadata],
     ) -> None:
         self._previous = previous
         self._commits = commits
-        self._approvers = approvers
+        self._metadata = metadata
 
     def previous_tag(self, *, before: str) -> str | None:
         return self._previous
@@ -118,8 +118,8 @@ class _FakeGitlabClient:
     def compare_commits(self, *, from_: str | None, to: str) -> list[RawCommit]:
         return self._commits
 
-    def mr_approvers(self, commit_shas: list[str]) -> dict[str, list[str]]:
-        return self._approvers
+    def mr_metadata(self, commit_shas: list[str]) -> dict[str, MrMetadata]:
+        return self._metadata
 
 
 def test_build_context_assembles_full_changelog_context() -> None:
@@ -127,7 +127,11 @@ def test_build_context_assembles_full_changelog_context() -> None:
         RawCommit("a", "feat: thing", "feat: thing", "Alice", "alice@example.com"),
         RawCommit("b", "fix: bug", "fix: bug", "Bob", "bob@example.com"),
     ]
-    client = _FakeGitlabClient(previous="v0.9.0", commits=commits, approvers={"a": ["Carol"]})
+    client = _FakeGitlabClient(
+        previous="v0.9.0",
+        commits=commits,
+        metadata={"a": MrMetadata(approvers=["Carol"], labels=["feature"])},
+    )
     settings = Settings(
         gitlab_url="https://gitlab.example.com",
         project_id="42",
@@ -147,6 +151,7 @@ def test_build_context_assembles_full_changelog_context() -> None:
     assert {c.name for c in context.contributors} == {"Alice", "Bob"}
     assert context.approvers == ["Carol"]
     assert context.packages == []
+    assert context.labels_by_sha == {"a": ["feature"]}
 
 
 def _sample_context() -> ChangelogContext:
@@ -194,10 +199,12 @@ def test_render_default_template_includes_all_sections_in_order() -> None:
     assert "## other" in text
     assert "unparseable commit (23456789)" in text
     assert "## Contributors" in text
-    assert "- Alice" in text
-    assert "- Bob" in text
+    assert "| Name" in text and "| Email" in text
+    assert "Alice" in text and "alice@example.com" in text
+    assert "Bob" in text and "bob@example.com" in text
     assert "## Approvers" in text
-    assert "- Carol" in text
+    assert "| Approver" in text
+    assert "Carol" in text
     assert "## Packages" not in text
 
     for a, b in [
@@ -206,6 +213,80 @@ def test_render_default_template_includes_all_sections_in_order() -> None:
         ("## Contributors", "## Approvers"),
     ]:
         assert text.index(a) < text.index(b)
+
+
+def test_render_label_mode_groups_by_mr_labels() -> None:
+    context = ChangelogContext(
+        tag="v1.0.0",
+        previous_tag="v0.9.0",
+        project="42",
+        released_at="2026-08-05T00:00:00+00:00",
+        commits=[
+            parse_commit(
+                RawCommit(
+                    "aaaaaaaaaa",
+                    "did a bug thing",
+                    "did a bug thing",
+                    "Alice",
+                    "alice@example.com",
+                )
+            ),
+            parse_commit(
+                RawCommit(
+                    "bbbbbbbbbb",
+                    "did an infra thing",
+                    "did an infra thing",
+                    "Bob",
+                    "bob@example.com",
+                )
+            ),
+            parse_commit(
+                RawCommit(
+                    "cccccccccc",
+                    "no mr for this one",
+                    "no mr for this one",
+                    "Carol",
+                    "carol@example.com",
+                )
+            ),
+        ],
+        contributors=[],
+        approvers=[],
+        packages=[],
+        labels_by_sha={"aaaaaaaaaa": ["bug"], "bbbbbbbbbb": ["infra", "bug"]},
+    )
+
+    text = render(context, group_by="label")
+
+    assert "## bug" in text
+    assert "did a bug thing" in text
+    assert "did an infra thing" in text  # bbbbbbbbbb carries both "infra" and "bug"
+    assert "## infra" in text
+    assert "## uncategorized" in text
+    assert "no mr for this one" in text
+    assert text.index("## uncategorized") > text.index("## bug")
+    assert text.index("## uncategorized") > text.index("## infra")
+
+
+def test_render_type_mode_is_still_the_default() -> None:
+    context = ChangelogContext(
+        tag="v1.0.0",
+        previous_tag="v0.9.0",
+        project="42",
+        released_at="2026-08-05T00:00:00+00:00",
+        commits=[
+            parse_commit(RawCommit("a", "feat: thing", "feat: thing", "Alice", "a@example.com")),
+        ],
+        contributors=[],
+        approvers=[],
+        packages=[],
+        labels_by_sha={"a": ["ignored-in-type-mode"]},
+    )
+
+    text = render(context)  # no group_by passed
+
+    assert "## feat" in text
+    assert "## ignored-in-type-mode" not in text
 
 
 def test_render_first_release_has_no_previous_tag_line() -> None:
